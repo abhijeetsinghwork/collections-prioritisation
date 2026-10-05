@@ -12,6 +12,7 @@ paths:
   labels_dir: data/processed/labels
   macro_dir: data/raw/macro
   features_dir: data/processed/features
+  monitor_features_dir: data/processed/monitor_features   # stage 6: all delinquent rows in drift windows
   feature_audit_table: outputs/tables/feature_audit.csv
   models_dir: data/processed/models
   scores_dir: data/processed/scores

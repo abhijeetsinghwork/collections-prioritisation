@@ -25,6 +25,7 @@ class PathsConfig(_Strict):
     labels_dir: Path
     macro_dir: Path
     features_dir: Path
+    monitor_features_dir: Path
     feature_audit_table: Path
     models_dir: Path
     scores_dir: Path
