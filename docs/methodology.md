@@ -664,6 +664,44 @@ already exceeds the prediction (0.26). No PSI or AUC had been computed. The
 rule above does not depend on those numbers, but the reader should know they
 were seen.
 
+### First run: the split design dominates the monitor
+
+All structural checks passed (the pooled 2018–19 AUC matched the logged
+Stage 4 value to five decimals; split-half PSI on train was at most 0.0003).
+The departure rule, as fixed, reported:
+
+| Series | First sustained departure |
+|---|---|
+| Median feature PSI | 2020-01 |
+| AUC | 2020-01 |
+| Calibration in the large | 2020-03 |
+| ECE | 2020-03 |
+| Model-score PSI | none |
+
+**The 2020-01 departures are an artefact, not the pandemic.** Splits are
+disjoint by loan (Stage 2), so every window restarts with loans that have
+never been delinquent before: the share of first-episode accounts is 13.8%
+in train, but **100%** in both 2018-01 and 2020-01 (33.7% by 2019-12). For
+those accounts every history feature (`max_bucket_before_t`,
+`times_entered_delinquency_before_t`, …) is empty, so feature PSI is huge
+at the start of each window (median 2.75 in 2018-01, 2.94 in 2020-01) and
+decays as the population refills, and within-month AUC dips because the
+strongest features carry nothing (0.598 in 2018-01; 0.574 and 0.636 in
+2020-01/02). The baseline band inherits the same decay, so it is too wide to
+detect anything in PSI: the model-score PSI never leaves it.
+
+What survives: **calibration broke in 2020-03**, when outcomes jumped
+(roll rate 0.41, then 0.77 in 2020-04, against predictions of 0.26 and 0.24)
+while the inputs that measure the same population had not yet moved
+relative to the start of the window. Both recovered into their baseline
+bands by mid-2020 (calibration gap from 2020-06, AUC from 2020-07, then AUC
+0.71–0.80 through 2021), but the sign of the calibration error flipped: the
+model **under**-predicted the roll rate in every month from 2020-03 to
+2021-01, whereas in 2018–19 it over-predicted in 23 of 24 months.
+
+The rule is not changed after seeing this. Any fix is a follow-up with its
+own protocol, reported alongside this run.
+
 ---
 
 ## Reproduction check (2026-10-05)
