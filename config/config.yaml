@@ -1,0 +1,123 @@
+# Single source of every tunable parameter. Loaded and validated once by
+# src/utils/config.py; unknown keys fail at startup.
+
+random_seed: 20260105
+
+paths:
+  raw_dir: data/raw
+  layout_file: data/raw/docs/file_layout_july_2026.xlsx
+  orig_glob: sample_orig_{vintage}.txt
+  perf_glob: sample_perf_{vintage}.txt
+  panel_dir: data/interim/panel
+  schema_module: src/utils/schema.py
+
+spark:
+  master: local[*]
+  driver_memory: 8g            # roughly half of a 16GB machine
+  shuffle_partitions: 64
+  session_timezone: UTC
+  # PySpark 3.5 supports Java 8/11/17 only. Used when JAVA_HOME is unset.
+  supported_java_majors: [8, 11, 17]
+  java_home_candidates:
+    - /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+    - /usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+
+ingest:
+  # Vintages ingested by `make ingest`. Override on the CLI with --vintages.
+  vintages: [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+             2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019,
+             2020, 2021, 2022, 2023, 2024]
+  delimiter: "|"
+
+  # Not-available sentinels, per the SFLLD General User Guide (July 2026).
+  # Compared against the trimmed raw string before type casting.
+  sentinels:
+    credit_score: ["9999"]
+    vantage_score: ["9999"]
+    first_time_homebuyer: ["9"]
+    mi_pct: ["999"]
+    num_units: ["99"]
+    occupancy_status: ["9"]
+    orig_cltv: ["999"]
+    orig_dti: ["999"]
+    orig_ltv: ["999"]
+    channel: ["9"]
+    property_type: ["99"]
+    postal_code: ["000"]
+    loan_purpose: ["9"]
+    num_borrowers: ["99"]
+    property_valuation_method: ["7"]
+    eltv: ["999"]
+    mi_cancellation_indicator: ["7"]
+
+  delinquency:
+    unknown_code: "XX"          # mapped to null; rows excluded from the panel
+    reo_code: "RA"              # REO acquisition; terminal
+    bucket_cap: 4               # dq_bucket = min(months delinquent, cap) -> "4+"
+    reo_bucket: 4               # REO is deeper than any delinquency bucket
+
+  # Columns carried into the panel. Post-disposition loss fields (actual loss,
+  # recoveries, expenses, net sale proceeds) are dropped here on purpose: they
+  # are only populated after the outcome and can only ever leak.
+  retain_origination:
+    - loan_sequence_number
+    - vintage
+    - credit_score
+    - first_time_homebuyer
+    - first_payment_date
+    - maturity_date
+    - msa
+    - mi_pct
+    - num_units
+    - occupancy_status
+    - orig_cltv
+    - orig_dti
+    - orig_upb
+    - orig_ltv
+    - orig_interest_rate
+    - channel
+    - property_state
+    - property_type
+    - loan_purpose
+    - orig_loan_term
+    - num_borrowers
+  retain_performance:
+    - loan_sequence_number
+    - reporting_period
+    - reporting_year
+    - current_upb
+    - delinquency_status
+    - dq_months
+    - dq_bucket
+    - is_reo
+    - loan_age
+    - remaining_months_to_maturity
+    - modification_flag
+    - zero_balance_code
+    - zero_balance_effective_date
+    - current_interest_rate
+    - current_deferred_upb
+    - current_interest_bearing_upb
+    - step_modification_flag
+    - payment_deferral_flag
+    - eltv
+    - delinquency_due_to_disaster
+    - borrower_assistance_status
+    - servicer_name
+
+checks:
+  # Spec section 5: if current does not dominate, the status mapping is wrong.
+  min_current_share: 0.95
+  spot_check_loans: 5
+
+labels:
+  # Zero Balance Code classification. Codes from the July 2026 guide.
+  # Used from Stage 2; recorded here so the decision is visible early.
+  zero_balance_codes:
+    "01": cure       # prepaid or matured
+    "02": roll       # third party sale
+    "03": roll       # short sale or charge off
+    "09": roll       # REO disposition
+    "15": roll       # whole loan sale
+    "16": exclude    # reperforming loan securitization (not in spec; see methodology)
+    "96": exclude    # confirmed underwriting / servicing defect

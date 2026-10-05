@@ -1,0 +1,61 @@
+[project]
+name = "collections-prioritisation"
+version = "0.1.0"
+description = "Rank delinquent mortgage accounts for collections contact under a capacity constraint."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "pyspark==3.5.*",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "lightgbm",
+    "scikit-learn",
+    "mlflow",
+    "shap",
+    "matplotlib",
+    "seaborn",
+    "optbinning",
+    "pyyaml",
+    "tqdm",
+    "pydantic>=2",
+    "openpyxl",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pre-commit",
+    "types-PyYAML",
+    "pandas-stubs",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.format]
+exclude = ["src/utils/schema.py", "*.md"]  # generated file; prose docs
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "PD", "NPY"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/utils/schema.py" = ["E501"]  # generated from the layout workbook
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+exclude = ["notebooks/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
