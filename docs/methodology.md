@@ -4,6 +4,28 @@ A running record of each decision and the reason for it, written as the
 project is built. Decisions that later turn out to be wrong stay here, with
 what replaced them.
 
+## Summary
+
+- **Result (Stage 5).** At 20% capacity, ranking by P(roll) × balance
+  captured 50.2% of the balance that rolled deeper in 2018–19, against 38.4%
+  by days past due, 39.0% by balance, 20.0% at random and 92.0% for the
+  oracle. Most of the gain comes from the product, not from the probability
+  alone (41.1%). It beat days past due in all 24 test months.
+- **What went wrong, and stays recorded.** Calibration fitted on 2016–17 did
+  not transfer to 2018–19 for any method tried; this was accepted as a
+  documented failure rather than fixed with test data (Stage 4), and it
+  barely moves the policy result (Stage 5). A rule for choosing segmented
+  over pooled models was tightened after seeing validation, before test
+  (Stage 4). The make dependencies were rebuilt on content after a merge
+  made every stage look stale (Stage 3, Pipeline rebuilds).
+- **Choices that shape the numbers.** Labels use calendar-month windows
+  because the source has gaps (Stage 2); splits are disjoint by loan, so the
+  test window holds first-episode delinquents only (Stage 2); reperforming
+  loan sales (code 16) are censored, not labelled (Stage 2); features
+  declare and test their time windows (Stage 3); macro series are lagged to
+  publication date (Stage 3).
+- **Limitations** are in the [README](../README.md#limitations).
+
 ---
 
 ## Stage 1 — Ingest
@@ -602,3 +624,22 @@ design, and it is recorded rather than trimmed.
 Artifacts: `outputs/tables/policy_*_test.csv`,
 `outputs/figures/capture_curve_test.png` (README hero) and
 `monthly_capture_test.png`; MLflow run `stage5-policy-test`.
+
+---
+
+## Reproduction check (2026-10-05)
+
+The spec requires `make all` from a clean checkout plus `data/raw/` to
+reproduce every number in the README. Run in a fresh git worktree of the
+README commit, with an empty `data/` apart from the raw files (symlinked,
+read-only), and its own environment from `uv.lock`:
+
+- Every stage passed its checks (the calibration check through its recorded
+  acceptance). Total run time was under 8 minutes.
+- Every committed output table and figure came out byte-identical.
+- The only difference is the test log: `make all` scores the frozen model on
+  test once, because the policy simulation needs test scores. That **fourth
+  test evaluation** is appended to `outputs/tables/test_evaluations.csv`, and
+  its metrics match the first three exactly. It changed nothing and was not
+  used to change anything.
+
