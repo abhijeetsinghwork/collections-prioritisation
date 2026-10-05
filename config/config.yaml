@@ -310,6 +310,21 @@ models:
   # neighbourhood. A tolerance, not a target.
   max_val_test_auc_gap: 0.05
 
+policy:
+  # Stage 5. Fixed before the first run on any split; none of these is a target.
+  split: test                     # the deliverable; `--split validation` rehearses the mechanics
+  capacity_grid: {start: 0.05, stop: 0.50, step: 0.01}   # plot x-axis; 1.0 is added for checks
+  table_capacities: [0.10, 0.20, 0.30]
+  headline_capacity: 0.20
+  headline_policy: by_expected_value
+  random_seeds: 20                # random permutations, and random tie-breaks for every policy
+  # Structural-check tolerances (absolute capture-rate points), not targets.
+  # Random: the mean of 20 random draws should sit at the capacity fraction.
+  random_capture_tolerance: 0.02
+  # by_balance carries no risk information, so its capture should be close to
+  # the share of balance held by the largest accounts (check 6).
+  balance_share_tolerance: 0.05
+
 acceptance:
   # Acceptance checks that failed, were investigated, and are knowingly
   # accepted. Kept out of `models:` so it does not change the frozen model.

@@ -1,0 +1,4 @@
+capacity,random,by_dpd,by_balance,by_prob,by_expected_value,by_expected_value_raw,oracle,by_expected_value_gap_closed_vs_by_dpd,by_expected_value_gap_closed_vs_by_balance
+0.10000,0.09958,0.19790,0.19556,0.21705,0.30573,0.30592,0.53078,0.32394,0.32867
+0.20000,0.19970,0.35955,0.36158,0.38048,0.48384,0.48485,0.80492,0.27907,0.27577
+0.30000,0.29974,0.46125,0.49679,0.51417,0.60892,0.60721,0.95244,0.30063,0.24608

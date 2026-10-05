@@ -198,6 +198,42 @@ class ModelsConfig(_Strict):
     max_val_test_auc_gap: float = Field(gt=0, lt=1)
 
 
+class CapacityGrid(_Strict):
+    start: float = Field(gt=0, le=1)
+    stop: float = Field(gt=0, le=1)
+    step: float = Field(gt=0, lt=1)
+
+
+class PolicyConfig(_Strict):
+    split: str
+    capacity_grid: CapacityGrid
+    table_capacities: list[float] = Field(min_length=1)
+    headline_capacity: float = Field(gt=0, lt=1)
+    headline_policy: Literal[
+        "by_dpd", "by_balance", "by_prob", "by_expected_value", "by_expected_value_raw"
+    ]
+    random_seeds: int = Field(gt=0)
+    random_capture_tolerance: float = Field(gt=0, lt=1)
+    balance_share_tolerance: float = Field(gt=0, lt=1)
+
+    def capacities(self) -> list[float]:
+        """Return the plotted capacity grid plus the table capacities and 1.0, sorted."""
+        g = self.capacity_grid
+        n = round((g.stop - g.start) / g.step)
+        grid = {round(g.start + i * g.step, 6) for i in range(n + 1)}
+        grid |= {round(c, 6) for c in self.table_capacities}
+        grid |= {round(self.headline_capacity, 6), 1.0}
+        return sorted(grid)
+
+    @model_validator(mode="after")
+    def _grid_ordered(self) -> PolicyConfig:
+        if self.capacity_grid.start >= self.capacity_grid.stop:
+            raise ValueError("policy.capacity_grid.start must be below stop")
+        if any(not 0 < c < 1 for c in self.table_capacities):
+            raise ValueError("policy.table_capacities must lie strictly between 0 and 1")
+        return self
+
+
 class AcceptanceConfig(_Strict):
     # check id -> reason. Only checks listed here can be accepted.
     accepted_failures: dict[Literal["calibration_improves_on_test"], str]
@@ -220,6 +256,7 @@ class Config(_Strict):
     features: FeaturesConfig
     tracking: TrackingConfig
     models: ModelsConfig
+    policy: PolicyConfig
     acceptance: AcceptanceConfig
 
     @model_validator(mode="after")
@@ -236,6 +273,8 @@ class Config(_Strict):
         unknown = set(self.checks.monotonic_splits) - set(names)
         if unknown:
             raise ValueError(f"checks.monotonic_splits names unknown splits: {sorted(unknown)}")
+        if self.policy.split not in names:
+            raise ValueError(f"policy.split names an unknown split: {self.policy.split}")
         return self
 
 

@@ -473,3 +473,47 @@ reason; the config refuses an accepted failure without a substantive reason
 or for an unknown check. That section sits outside `models:`, so it does not
 change the frozen model. No fourth test evaluation was run: the third
 evaluation (Platt) is the one being accepted.
+
+---
+
+## Stage 5 — Policy simulation
+
+### Protocol (fixed before the test run)
+
+`python -m src.s5_policy` reads the per-row scores the frozen Stage 4 models
+wrote; nothing is fitted or chosen here. It refuses to run if the scores are
+older than the frozen models or the model config changed since the freeze.
+
+For each month in the window, every policy ranks the same delinquent
+accounts. The ranking function receives the month's frame **with the label
+removed** and raises if it sees `rolls_deeper` or `money_at_risk`; a test
+spies on every call to confirm. The label is used only afterwards, to score:
+`money_at_risk = exposure × rolls_deeper`, and capture at capacity *C* is the
+money at risk in the first ⌊C·n⌋ accounts divided by the month's total.
+Months are pooled (sum captured / sum at risk), which is the risk-weighted
+mean the spec asks for. The oracle is the only ordering built from the
+outcome; it is a separate function, not a policy.
+
+Every policy breaks ties randomly and is averaged over 20 seeds (this is
+what makes `random` a random permutation and `by_dpd` a bucket sort with
+random tie-breaks). Exposure is `current_upb` at T, the same month-T value
+the features treat as known at T.
+
+Policies are the spec's six plus one sensitivity line committed to in Stage 4:
+`by_expected_value_raw`, the same score using the raw LightGBM probability
+instead of the frozen Platt-calibrated one. `by_prob` needs no raw twin:
+Platt is monotone, so it cannot change a ranking by probability alone.
+
+Fixed in `config.yaml` (`policy:`) before any run: capacities (5–50% for the
+curve; 10/20/30% for the table; 20% headline), the headline policy
+(`by_expected_value` with the frozen probabilities), 20 seeds, and two
+check tolerances: random within 0.02 of the capacity, and `by_balance`
+within 0.05 of the balance share of the largest accounts (check 6).
+
+The mechanics were rehearsed on **validation** first (all checks passed).
+One observation from that rehearsal: `by_balance` sat about 0.04 below the
+balance share, because the largest 20% of accounts by balance rolled less
+often (0.286 vs 0.341). That is a real relationship, not a bug, and it is
+close to the check-6 tolerance. The tolerance was **not** changed; instead
+the script now prints the roll rate of the largest accounts vs the rest, so
+a check-6 result on test can be explained either way.
