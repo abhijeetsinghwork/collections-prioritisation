@@ -517,3 +517,68 @@ often (0.286 vs 0.341). That is a real relationship, not a bug, and it is
 close to the check-6 tolerance. The tolerance was **not** changed; instead
 the script now prints the roll rate of the largest accounts vs the rest, so
 a check-6 result on test can be explained either way.
+
+### Results (test window, 2018-01 to 2019-12)
+
+31,061 delinquent account-months over 24 months. 25.7% of accounts rolled
+deeper, holding 24.9% of the queue's balance.
+
+**All 23 structural checks passed.** Random captured within 0.003 of the
+capacity at every point; every policy sat strictly below the oracle and at or
+above random; every curve was non-decreasing and reached 100% at full
+capacity. Check 6 also held: `by_balance` captured 0.390 at C = 20% against
+a balance share of 0.401. As in validation it sits slightly below, because
+the largest 20% of accounts rolled slightly less often (0.240 vs 0.262).
+
+| Capture of deteriorating balance | C = 10% | C = 20% | C = 30% |
+|---|---|---|---|
+| `random` | 0.099 | 0.200 | 0.301 |
+| `by_dpd` | 0.226 | 0.384 | 0.465 |
+| `by_balance` | 0.224 | 0.390 | 0.524 |
+| `by_prob` | 0.237 | 0.411 | 0.521 |
+| **`by_expected_value`** (frozen, Platt) | **0.336** | **0.502** | **0.623** |
+| `by_expected_value_raw` | 0.332 | 0.506 | 0.625 |
+| `oracle` | 0.643 | 0.920 | 0.999 |
+| Gap closed, `by_balance` → oracle | 27% | 21% | 21% |
+| Gap closed, `by_dpd` → oracle | 26% | 22% | 30% |
+
+**Headline:** contacting 20% of the delinquent queue ranked by
+P(roll) × balance captured 50.2% of the balance that went on to roll deeper,
+against 38.4% for ranking by days past due, 39.0% by balance, and 20.0% at
+random. It closes about a fifth of the gap between the best baseline and the
+oracle.
+
+What the table says about *where* the gain comes from: ranking by probability
+alone (`by_prob`, 0.411) barely beats days past due or balance alone. Most of
+the gain comes from the product. Neither a risk ranking nor an exposure
+ranking alone is much better than the other, but combining them is. This is
+the spec's reframe showing up in the data. The oracle's ceiling is high
+because only a quarter of the balance rolls, so a perfect 20% list holds
+most of it; the model is far from that.
+
+**Calibrated vs raw probabilities.** The two `by_expected_value` lines differ
+by at most 0.004 at the table capacities (Platt ahead at 10%, raw ahead at
+20% and 30%). Stage 4's accepted calibration failure, a level shift of a few
+points, barely reorders the queue here. That fits: multiplying every
+probability by a constant would not change the ordering of P × balance at
+all, and the frozen Platt map is mild (log-odds slope 0.86, intercept
++0.05), so it reorders only accounts whose P × balance values were already
+close.
+The frozen (Platt) number stays the headline, as decided in Stage 4.
+
+**Month-to-month stability (C = 20%).** `by_expected_value` captured
+0.499 ± 0.042 per month (range 0.377–0.559). It beat `by_dpd` in all 24
+months and `by_balance` in 23. The exception is **2018-01**, the first test
+month: because the splits are disjoint by loan, every loan delinquent in
+January 2018 that was also delinquent before 2018 belongs to validation, so
+the test window's first month is 410 bucket-1 first-time delinquents out of
+411. Days past due carries no information there (`by_dpd` 0.214, about random),
+the model's strongest trajectory features have nothing to work with, and
+`by_prob` fell below random for that month (0.154, on 411 accounts). By
+2018-03 buckets 2 and 3 have refilled and the month looks like the rest. The
+aggregate checks are unaffected; the effect is a property of the split
+design, and it is recorded rather than trimmed.
+
+Artifacts: `outputs/tables/policy_*_test.csv`,
+`outputs/figures/capture_curve_test.png` (README hero) and
+`monthly_capture_test.png`; MLflow run `stage5-policy-test`.
