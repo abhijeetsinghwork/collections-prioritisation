@@ -9,29 +9,17 @@ endif
 
 RUN      := uv run
 INTERIM  := data/interim
-RAW      := $(wildcard data/raw/sample_*.txt)
-CONFIG   := config/config.yaml
-COMMON   := src/spark.py src/utils/config.py src/utils/schema.py
-INGEST_SRC := src/s1_ingest.py src/pipeline/ingest.py src/pipeline/checks.py $(COMMON)
-FEATURES_EXTRA := src/utils/leakage.py
-LABELS_SRC := src/s2_labels.py src/pipeline/labels.py src/pipeline/label_checks.py $(COMMON)
-FEATURES_SRC := src/s3_features.py src/pipeline/features.py src/pipeline/feature_audit.py \
-	src/pipeline/macro.py src/pipeline/labels.py $(FEATURES_EXTRA) $(COMMON)
+STAMPS   := data/.stamps
 
-INGEST_DONE := $(INTERIM)/.s1_ingest.done
-LABELS_DONE := data/processed/.s2_labels.done
+INGEST_DONE   := $(INTERIM)/.s1_ingest.done
+LABELS_DONE   := data/processed/.s2_labels.done
 FEATURES_DONE := data/processed/.s3_features.done
-TRAIN_DONE := data/processed/.s4_fit.done
-MODELS_SRC := src/s4_models.py src/pipeline/modeling.py src/pipeline/evaluation.py \
-	src/utils/plots.py src/utils/leakage.py src/pipeline/features.py $(COMMON)
-POLICY_DONE := data/processed/.s5_policy.done
-# Test scores are written by the frozen models' (logged) test evaluation. Make
-# re-runs that evaluation only when the scores are older than the freeze.
+TRAIN_DONE    := data/processed/.s4_fit.done
+POLICY_DONE   := data/processed/.s5_policy.done
+MACRO_DONE    := data/raw/macro/MORTGAGE30US.csv
+# Test scores are written by the frozen models' (logged) test evaluation.
 EQ := =
 TEST_SCORES := data/processed/scores/split$(EQ)test/scores.parquet
-POLICY_SRC := src/s5_policy.py src/pipeline/policy.py src/utils/plots.py $(COMMON)
-MACRO_DONE := data/raw/macro/MORTGAGE30US.csv
-STAMPS := data/.stamps
 
 .PHONY: help setup schema macro lint format typecheck test check ingest labels features train evaluate-test policy drift all clean
 
@@ -61,19 +49,22 @@ test:  ## pytest on synthetic fixtures
 
 check: lint typecheck test  ## lint + typecheck + test
 
-# Stage targets rebuild when code, raw inputs or the stage's own config section
-# are newer than the marker. The marker is written only after every acceptance
-# check passes. Stamps are refreshed on every run but only touched on change.
+# Each stage depends on one content stamp (src/utils/config_stamp.py): its
+# config sections, the bytes of its sources, its raw inputs, and the upstream
+# stage's stamp. Stamps are recomputed on every run but only touched when that
+# content changes, so a checkout or merge does not trigger a rebuild. Upstream
+# markers are order-only (after the |): they must exist, their mtime is ignored.
+# A marker is written only after every acceptance check passes.
 .PHONY: FORCE
 $(STAMPS)/%.json: FORCE
 	@$(RUN) python -m src.utils.config_stamp $* $@
 
 ingest: $(INGEST_DONE)  ## stage 1
-$(INGEST_DONE): $(RAW) $(STAMPS)/ingest.json $(INGEST_SRC)
+$(INGEST_DONE): $(STAMPS)/ingest.json
 	$(RUN) python -m src.s1_ingest
 
 labels: $(LABELS_DONE)  ## stage 2
-$(LABELS_DONE): $(INGEST_DONE) $(STAMPS)/labels.json $(LABELS_SRC)
+$(LABELS_DONE): $(STAMPS)/labels.json | $(INGEST_DONE)
 	$(RUN) python -m src.s2_labels
 
 macro: $(MACRO_DONE)  ## download FRED macro series (no API key needed)
@@ -81,21 +72,22 @@ $(MACRO_DONE):
 	$(RUN) python -m src.utils.fetch_macro
 
 features: $(FEATURES_DONE)  ## stage 3
-$(FEATURES_DONE): $(LABELS_DONE) $(MACRO_DONE) $(STAMPS)/features.json $(FEATURES_SRC)
+$(FEATURES_DONE): $(STAMPS)/features.json | $(LABELS_DONE) $(MACRO_DONE)
 	$(RUN) python -m src.s3_features
 
 train: $(TRAIN_DONE)  ## stage 4: fit on train, select + calibrate on validation, freeze
-$(TRAIN_DONE): $(FEATURES_DONE) $(STAMPS)/models.json $(MODELS_SRC)
+$(TRAIN_DONE): $(STAMPS)/models.json | $(FEATURES_DONE)
 	$(RUN) python -m src.s4_models
 
 evaluate-test:  ## stage 4: score the FROZEN models on test (appends to the test log)
 	$(RUN) python -m src.s4_models --evaluate-test
 
-$(TEST_SCORES): $(TRAIN_DONE)
+# Re-scored on test only when the frozen models change (each run is logged).
+$(TEST_SCORES): $(STAMPS)/models.json | $(TRAIN_DONE)
 	$(RUN) python -m src.s4_models --evaluate-test
 
 policy: $(POLICY_DONE)  ## stage 5: capture of each contact policy on the test window
-$(POLICY_DONE): $(TEST_SCORES) $(STAMPS)/policy.json $(POLICY_SRC)
+$(POLICY_DONE): $(STAMPS)/policy.json $(TEST_SCORES) | $(TRAIN_DONE)
 	$(RUN) python -m src.s5_policy
 
 drift:  ## stage 6

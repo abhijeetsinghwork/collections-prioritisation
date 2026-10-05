@@ -296,6 +296,26 @@ Each stage's `make` target depends on a stamp of only its own config section
 (`src/utils/config_stamp.py`), so editing a feature decision re-runs Stage 3
 but not the 15-minute ingest.
 
+**Revised after Stage 5: content, not file times.** Stage targets also
+depended on the *mtimes* of their source files. A git checkout or merge
+rewrites mtimes, so after the Stage 4 merge every stage looked stale, and
+`make policy` would have re-run the whole pipeline, including a fourth
+(logged, unnecessary) test evaluation. Each stage now depends on one stamp
+holding its validated config sections, a SHA-256 of each of its source
+files, its external inputs (raw and macro files: name, size, mtime; never
+touched by git), and the hash of the upstream stage's stamp, so a real
+change propagates down the chain. Upstream markers are order-only
+prerequisites. `src/utils/config.py` is deliberately not hashed: the stamp
+already holds the validated values, so adding a config class for one stage
+does not invalidate the rest.
+
+The switch was adopted without re-running: no stage's logic changed after
+its last run (the only later edits were a refactor that extracted
+`load_manifest` in `s4_models.py` and new plot functions for Stage 5), so
+the new stamps were written and the existing markers kept. Checked with a
+dry run: nothing to do in the clean state; editing a Stage 5 source re-runs
+only Stage 5; editing a Stage 2 source re-runs Stages 2–5 but not ingest.
+
 ---
 
 ## Stage 4 — Models
