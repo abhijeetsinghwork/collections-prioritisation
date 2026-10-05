@@ -1,0 +1,117 @@
+# Methodology
+
+A running record of each decision and the reason for it, written as the
+project is built. Decisions that later turn out to be wrong stay here, with
+what replaced them.
+
+---
+
+## Stage 1 — Ingest
+
+### Schema comes from the official layout, not from the spec
+
+The SFLLD file layout has been revised across releases. `src/utils/schema.py`
+is generated from the File Layout workbook (`file_layout_july_2026.xlsx`) by
+`src/utils/gen_schema.py`: positions and data types come from the workbook,
+and short column names come from a curated map keyed on the workbook's
+attribute names. If Freddie Mac adds, drops or renames a field, generation
+fails and names the mismatch, instead of silently shifting every later column.
+
+The July 2026 layout differs from the field list in the original build spec:
+
+- The loan key is now called *Loan Identifier*. It is kept as
+  `loan_sequence_number` in code so the column name stays stable.
+- The credit score field is *Classic FICO®*; a *VantageScore® 4.0* field has
+  been added. Both use `9999` for not-available.
+- Performance files have 35 fields; origination files 31. Every vintage from
+  2000 to 2024 has the same field count.
+
+### Read as text, then cast, and count failures
+
+Files are read with an explicit all-string schema (never `inferSchema`), then
+cleaned, then cast. Reading as text first means a value that fails its cast
+is *counted* rather than silently becoming null. Ingest refuses to write the
+panel if any field has a cast failure, if any row has the wrong number of
+fields, or if any delinquency status is unrecognised.
+
+Layout fields typed "Numeric" are treated as integers only when short (≤ 4
+characters). Longer ones are dollar amounts that the files write with
+decimals (`0.00`), and are read as doubles. MSA, zero-balance code and
+property-valuation method are numeric-looking *codes*, kept as strings so
+`"01"` keeps its leading zero and no ordering is implied.
+
+### Sentinels
+
+Every not-available sentinel documented in the General User Guide is mapped to
+null, not only the four listed in the spec: `9999` (FICO, VantageScore), `999`
+(MI %, CLTV, DTI, LTV, ELTV), `99` (units, property type, borrowers), `9`
+(first-time buyer, occupancy, channel, loan purpose), `7` (valuation method,
+MI cancellation) and `000` (postal code). Sentinels are matched per column
+on the trimmed raw text, so a balance that happens to equal `9999` is never
+nulled.
+
+### Delinquency status → `dq_bucket`
+
+- Numeric statuses are months delinquent (the guide documents a cap at 99).
+  `dq_months` keeps the uncapped value; `dq_bucket = min(dq_months, 4)`.
+- `RA` (REO acquisition) is terminal and maps to `dq_bucket = 4`, with
+  `is_reo = true`. REO is strictly worse than any delinquency, so treating it
+  as the deepest bucket makes "rolls deeper" behave correctly without a
+  special case. On the 2015 vintage, every loan that reaches `RA` stays `RA`
+  until its last record.
+- `XX` (not available) is null and those loan-months are removed from the
+  panel. They are never coerced to current.
+
+### Columns dropped at ingest
+
+The disposition fields (actual loss, MI and non-MI recoveries, net sales
+proceeds, expenses, zero-balance removal UPB, delinquent accrued interest,
+modification costs, cramdown costs) are not carried into the panel. They are
+only populated at or after the terminal event, so they can only ever leak the
+outcome. Dropping them at the source means no later stage can pick them up
+by accident.
+
+DDLPI (due date of last paid installment) and the defect settlement date are
+also dropped, matching the Stage 3 leakage blocklist. DDLPI largely restates
+the delinquency status and can be revised after the fact, so keeping it in
+the panel would only create a second place for the leakage guard to police.
+
+### The source has month gaps
+
+The 2015 vintage has no `XX` rows, yet 2 of 50,000 loans have a missing month
+inside their history (e.g. one jumps from 2017-05 to 2017-08 while 12 months
+delinquent; another shows a $0 balance with no zero-balance code and then
+reappears two months later). These are source artefacts.
+
+**Consequence for Stage 2:** label and trajectory windows must step through
+time by calendar month, not by row offset. A `ROWS BETWEEN 1 FOLLOWING AND 3
+FOLLOWING` window would silently reach four or five months ahead across a gap.
+
+### Zero Balance Codes have changed since the spec
+
+The July 2026 guide no longer lists `06` (repurchase) and adds `15` (whole
+loan sales) and `16` (reperforming loan securitisations). Provisional
+classification, to be settled in Stage 2:
+
+| Code | Meaning | Treat as |
+|---|---|---|
+| 01 | Prepaid or matured | cure |
+| 02 | Third party sale | roll |
+| 03 | Short sale or charge off | roll |
+| 09 | REO disposition | roll |
+| 15 | Whole loan sale | roll |
+| 16 | Reperforming loan securitisation | exclude (provisional) |
+| 96 | Confirmed defect | exclude |
+
+Code `16` matters more than it looks: in the 2015 vintage it terminates 108
+loans, more than codes 02, 03, 09 and 15 combined, and the loans it removes
+have delinquency histories (one spot-checked loan was 20 months delinquent,
+was modified, re-performed, then left with code 16). It is a sale of a
+reperforming loan out of the portfolio, not an observed credit outcome, which
+argues for treating it as censoring rather than as a roll or a cure.
+
+### Environment
+
+PySpark 3.5 supports Java 8/11/17 only; the machine default was Java 24.
+`src/spark.py` locates a supported JDK (respecting `JAVA_HOME`) and fails with
+an install instruction if there is none.
