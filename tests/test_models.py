@@ -5,8 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit, logit
 from sklearn.isotonic import IsotonicRegression
 
+from src.pipeline import calibration as cal
 from src.pipeline import evaluation as ev
 from src.pipeline import modeling as md
 from src.pipeline.labels import LABEL
@@ -111,37 +113,62 @@ def test_segmented_prediction_routes_by_bucket():
         md.predict_segmented({1: boosters[1]}, spec, valid)
 
 
-# --- calibration transfer check ------------------------------------------------
+# --- calibration methods and the forward-in-time choice -------------------------
 
 
-def _transfer_frame(raw, y, months):
+def _months(n_rows, months):
     periods = pd.date_range("2016-01-01", periods=months, freq="MS")
-    per = len(raw) // months
-    return pd.DataFrame(
-        {"reporting_period": np.repeat(periods, per)[: len(raw)], LABEL: y[: per * months]}
-    )
+    return pd.Series(np.repeat(periods, n_rows // months))
 
 
-def test_transfer_check_keeps_isotonic_when_miscalibration_is_stable():
-    from src.s4_models import calibration_transfer
+def test_intercept_shift_fixes_a_pure_level_error():
+    rng = np.random.default_rng(3)
+    true_p = rng.uniform(0.05, 0.5, 40_000)
+    y = rng.binomial(1, true_p)
+    raw = expit(logit(true_p) + 0.8)  # everything too high by the same log-odds
+    p = cal.fit_calibrator("intercept_shift", raw, y).predict(raw)
+    assert ev.expected_calibration_error(y, p, 10) < 0.01
+    assert ev.expected_calibration_error(y, raw, 10) > 0.1
 
+
+def test_platt_fixes_a_slope_error():
+    rng = np.random.default_rng(4)
+    true_p = rng.uniform(0.05, 0.9, 40_000)
+    y = rng.binomial(1, true_p)
+    raw = expit(2.0 * logit(true_p))  # overconfident: log-odds stretched
+    p = cal.fit_calibrator("platt", raw, y).predict(raw)
+    assert ev.brier(y, p) < ev.brier(y, raw)
+    assert ev.expected_calibration_error(y, p, 10) < 0.01
+
+
+def test_unknown_method_rejected():
+    with pytest.raises(ValueError, match="unknown calibration method"):
+        cal.fit_calibrator("magic", np.array([0.1]), np.array([0]))
+
+
+def test_transfer_check_picks_lowest_ece_among_methods_that_beat_raw():
     rng = np.random.default_rng(1)
     true_p = rng.uniform(0.05, 0.6, 24_000)
     y = rng.binomial(1, true_p)
-    raw = np.clip(true_p * 1.5, 0, 1)  # same overconfidence in both years
-    table, method = calibration_transfer(_transfer_frame(raw, y, 24), raw, 12, 10)
-    assert method == "isotonic"
-    assert set(table["method"]) == {"raw", "isotonic"}
-    assert table["eval_rows"].iloc[0] == 12_000
+    raw = expit(logit(true_p) + 0.7)  # same level error in both years
+    table, method = cal.transfer_check(
+        _months(24_000, 24), y, raw, ["isotonic", "platt", "intercept_shift"], 12, 10
+    )
+    assert method != cal.RAW
+    winner = table[table["chosen"]].iloc[0]
+    eligible = table[table["beats_raw"]]
+    assert winner["ece"] == eligible["ece"].min()
+    assert table.loc[table["method"] == "raw", "eval_rows"].iloc[0] == 12_000
 
 
-def test_transfer_check_falls_back_to_raw_when_the_map_does_not_carry_forward():
-    from src.s4_models import calibration_transfer
-
+def test_transfer_check_falls_back_to_raw_when_no_map_carries_forward():
     rng = np.random.default_rng(2)
     raw = rng.uniform(0.05, 0.6, 24_000)
     true_p = raw.copy()
-    true_p[:12_000] = np.clip(raw[:12_000] * 1.4, 0, 1)  # year 1 rolls more than predicted
-    y = rng.binomial(1, true_p)  # year 2: raw is right
-    _, method = calibration_transfer(_transfer_frame(raw, y, 24), raw, 12, 10)
-    assert method == "raw"
+    true_p[:12_000] = np.clip(raw[:12_000] * 1.4, 0, 1)  # only year 1 is off
+    y = rng.binomial(1, true_p)
+    table, method = cal.transfer_check(
+        _months(24_000, 24), y, raw, ["isotonic", "platt", "intercept_shift"], 12, 10
+    )
+    assert method == cal.RAW
+    assert not table.loc[table["method"] != "raw", "beats_raw"].any()

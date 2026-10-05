@@ -298,11 +298,13 @@ models:
   calibration:
     reliability_bins: 10
     decile_bins: 10
-    # Transfer check, added after isotonic (fit on all of validation) worsened
-    # test calibration. Decided without test: fit isotonic on validation minus
-    # its last N months, score those last N months. Isotonic is used only if
-    # it improves BOTH Brier and ECE there over raw scores; otherwise raw.
+    # Method choice, added after isotonic (fit on all of validation) worsened
+    # test calibration. Decided without test: fit each method on validation
+    # minus its last N months, score those last N months. Choose the lowest
+    # held-out ECE among methods that beat raw on BOTH Brier and ECE; raw if
+    # none does. The chosen method is then refit on all of validation.
     transfer_holdout_months: 12
+    methods: [isotonic, platt, intercept_shift]
   importance_top_n: 20
   # Structural test-phase check: validation and test AUC in the same
   # neighbourhood. A tolerance, not a target.
