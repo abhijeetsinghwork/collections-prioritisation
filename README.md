@@ -17,6 +17,92 @@ balance captured **50.2%** of the balance that rolled deeper over the next three
 months, against **38.4%** for ranking by days past due, **39.0%** by balance and
 **20.0%** at random (test window 2018–2019, 24 months, 31,061 account-months).
 
+## The project in plain terms
+
+### The situation
+
+A lender has thousands of borrowers who are behind on their mortgage
+payments, between one and three months late. Some will catch up on their
+own. Others will fall further behind and may end in foreclosure. The
+collections team can only phone a fraction of them each month, so every
+month someone has to decide who gets called first.
+
+### The problem
+
+The usual rule is to call the people who are furthest behind first. That
+rule ignores two things that matter:
+
+- **Not every late account is heading for trouble.** Some borrowers fix
+  the problem themselves, and a call to them is wasted effort.
+- **Not every account carries the same amount of money.** Missing a
+  large loan that is about to go bad costs far more than missing a small
+  one.
+
+### What the project does
+
+Every month, for every late account, the project estimates how likely the
+borrower is to fall further behind in the next three months. It uses the
+loan's details, its recent payment history, and local unemployment and
+house-price trends, and only information that would have been available
+that month. It multiplies that likelihood by the amount still owed, which
+gives a measure of **money at risk**. It then ranks the accounts by that
+measure, so the team calls the largest amounts at risk first.
+
+It then replays real history to see how well that ranking would have
+worked. It is compared, month by month, with the simple rules a team might
+use instead: random order, most days late first, and largest balance first.
+A "perfect hindsight" ranking sets the ceiling.
+
+### What it finds out
+
+- **Whether a model-based list beats the rules teams use today, and by how
+  much.** With capacity to call 20% of late accounts, the ranked list
+  reaches half of all the money that went on to deteriorate. Calling the
+  most-overdue accounts first reaches 38%, and calling at random reaches 20%.
+- **Whether the advantage holds up every month or depends on a few lucky
+  ones.** It beat the days-late rule in all 24 months of the test period.
+- **Where the advantage comes from.** Knowing who is likely to deteriorate
+  helps only a little on its own. The gain comes from combining that
+  likelihood with the amount owed.
+- **How much room is left.** Perfect hindsight would reach 92%. The model
+  closes about a fifth of the gap between the best simple rule and that
+  ceiling, so much of what decides the outcome is not in this data.
+- **Whether its probability estimates can be taken at face value.** Not
+  exactly: in 2018–19 they ran a few points high. That barely changes who
+  gets called (at most 0.4 points of money reached).
+- **What happens in a crisis, and which warning signs show up first.** When
+  the pandemic hit in 2020, its estimates went wrong in March, and in
+  April its ranking was briefly no better than random. Changes in the
+  incoming accounts were visible at once, but the error in its estimates
+  could only be confirmed three months later. That is why a deployed model
+  needs both kinds of monitoring.
+- **Whether the results can be trusted.** The test period was set aside
+  until the model was finished. The code that builds the call list cannot
+  see the outcomes it is graded on. Every rule was fixed before the results
+  existed. A clean rebuild reproduces every number exactly.
+
+### What it produces
+
+| Output | What it is | Where |
+|---|---|---|
+| Account scores | For every late account in each month of the evaluation periods: its estimated likelihood of deteriorating and its balance, which together give its place in the call list | `data/processed/scores/` (loan-level, so not in git) |
+| Capture curve | How much of the at-risk money each ranking reaches, for any calling capacity from 5% to 50% | [chart above](outputs/figures/capture_curve_test.png), [table](outputs/tables/policy_curve_test.csv) |
+| Results at 10/20/30% capacity | The headline comparison, plus how much of the gap to perfect hindsight is closed | [policy_capture_test.csv](outputs/tables/policy_capture_test.csv) |
+| Month-by-month results | Whether the advantage is steady or erratic | [chart](outputs/figures/monthly_capture_test.png), [table](outputs/tables/policy_monthly_test.csv) |
+| Model comparison | The model against simpler models on accuracy and reliability | [model_comparison_test.csv](outputs/tables/model_comparison_test.csv), [feature_importance.csv](outputs/tables/feature_importance.csv) |
+| Crisis monitor | How the model and its incoming data changed month by month through 2020–21 | [chart](outputs/figures/drift_monitor_monitoring.png), [table](outputs/tables/drift_monitor_monthly_monitoring.csv) |
+| Decision log | Every choice made, why it was made, and what went wrong | [docs/methodology.md](docs/methodology.md) |
+
+### How results are measured
+
+| Measure | What it tells you |
+|---|---|
+| **Capture rate** (the main one) | Of all the money owed by accounts that went on to deteriorate, the share sitting in the accounts the team actually called. Random calling captures roughly the share of accounts called (20% for 20%), which makes it the floor. |
+| **Gap closed** | How far the model moves from the best simple rule towards perfect hindsight. 0% is no better than the rule; 100% is perfect. |
+| **AUC** | How well the model puts accounts that will deteriorate above those that won't. 0.5 is a coin flip and 1.0 is perfect. Here it is 0.72, against 0.64 for days late alone. |
+| **Calibration** (Brier score, calibration error) | Whether a predicted 30% chance really means about 30% of such accounts deteriorate. This matters because the likelihood is multiplied by the balance: if the estimates are off, the list gets reordered. |
+| **Population stability (PSI)** | How different this month's accounts look from the ones the model learned from. A sudden jump is an early warning that the model may no longer fit. |
+
 ## Results
 
 Out-of-time test window, 2018-01 to 2019-12, scored once by a model frozen
