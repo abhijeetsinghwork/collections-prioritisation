@@ -389,3 +389,33 @@ This is recorded as observed. Choosing raw over isotonic *because* of this
 test result would be a test-informed decision; any change to the calibration
 approach has to be a new experiment judged on data other than test, with
 this test result reported alongside it.
+
+### Follow-up experiment: does a calibration map carry forward in time?
+
+Decided with the project owner after the failure above, and fixed in config
+before it was run: fit isotonic on validation minus its last 12 months
+(2016, 9,155 rows), score the last 12 months (2017, 18,281 rows), and keep
+isotonic only if it improves **both** Brier and ECE over raw scores there.
+No test data is involved.
+
+| 2017 holdout (calibrator fit on 2016) | Brier | ECE |
+|---|---|---|
+| Raw | 0.1931 | 0.0470 |
+| Isotonic | 0.1930 | 0.0377 |
+
+Isotonic passed the rule, so it stays the downstream calibration. The Brier
+improvement is 0.0001, which is effectively nil; the rule was not tightened
+after the fact, because that would be choosing the rule from its result.
+
+The frozen models were re-fitted (identical boosters and validation AUCs) and
+re-evaluated on test; the test log shows both evaluations. Test numbers are
+unchanged and **the calibration acceptance check still fails** (Brier 0.1627
+raw vs 0.1646 isotonic; ECE 0.0135 vs 0.0444).
+
+What this shows: within 2016–17, a one-year-old calibration map still helped,
+so validation could not see the problem; the shift that breaks it happens
+between the validation and test windows. A single two-year window is not
+enough to estimate a calibration map that holds in the next period. Stage 5
+should therefore report its policy results under both calibrated and raw
+probabilities, so the reader can see how much the ranking depends on this
+choice, with the frozen (isotonic) result as the primary number.

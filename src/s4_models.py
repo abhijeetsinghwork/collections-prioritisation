@@ -538,7 +538,10 @@ def test_phase(cfg: Config) -> bool:
     if previous is not None:
         print(f"NOTE: test has been evaluated {previous['evaluated_at'].nunique()} time(s) before")
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_rows.to_csv(log_path, mode="a", header=previous is None, index=False, float_format="%.5f")
+    # Rewrite with the union of columns so older rows stay aligned if new fields
+    # are added; earlier evaluations are never dropped.
+    combined = log_rows if previous is None else pd.concat([previous, log_rows], ignore_index=True)
+    combined.to_csv(log_path, index=False, float_format="%.5f")
     print(f"appended to {log_path}")
 
     log_table("model_comparison_test", comp, cfg)
