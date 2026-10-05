@@ -19,6 +19,7 @@ STAGE_SECTIONS = {
     "ingest": ["ingest"],
     "labels": ["labels", "splits"],
     "features": ["features"],
+    "models": ["models", "random_seed"],
 }
 
 

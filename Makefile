@@ -21,10 +21,13 @@ FEATURES_SRC := src/s3_features.py src/pipeline/features.py src/pipeline/feature
 INGEST_DONE := $(INTERIM)/.s1_ingest.done
 LABELS_DONE := data/processed/.s2_labels.done
 FEATURES_DONE := data/processed/.s3_features.done
+TRAIN_DONE := data/processed/.s4_fit.done
+MODELS_SRC := src/s4_models.py src/pipeline/modeling.py src/pipeline/evaluation.py \
+	src/utils/plots.py src/utils/leakage.py src/pipeline/features.py $(COMMON)
 MACRO_DONE := data/raw/macro/MORTGAGE30US.csv
 STAMPS := data/.stamps
 
-.PHONY: help setup schema macro lint format typecheck test check ingest labels features train policy drift all clean
+.PHONY: help setup schema macro lint format typecheck test check ingest labels features train evaluate-test policy drift all clean
 
 help:  ## list targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -75,8 +78,12 @@ features: $(FEATURES_DONE)  ## stage 3
 $(FEATURES_DONE): $(LABELS_DONE) $(MACRO_DONE) $(STAMPS)/features.json $(FEATURES_SRC)
 	$(RUN) python -m src.s3_features
 
-train:  ## stage 4
-	@echo "stage 4 not built yet" && exit 1
+train: $(TRAIN_DONE)  ## stage 4: fit on train, select + calibrate on validation, freeze
+$(TRAIN_DONE): $(FEATURES_DONE) $(STAMPS)/models.json $(MODELS_SRC)
+	$(RUN) python -m src.s4_models
+
+evaluate-test:  ## stage 4: score the FROZEN models on test (appends to the test log)
+	$(RUN) python -m src.s4_models --evaluate-test
 
 policy:  ## stage 5
 	@echo "stage 5 not built yet" && exit 1

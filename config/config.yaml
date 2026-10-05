@@ -13,6 +13,11 @@ paths:
   macro_dir: data/raw/macro
   features_dir: data/processed/features
   feature_audit_table: outputs/tables/feature_audit.csv
+  models_dir: data/processed/models
+  scores_dir: data/processed/scores
+  tables_dir: outputs/tables
+  figures_dir: outputs/figures
+  test_log: outputs/tables/test_evaluations.csv
   schema_module: src/utils/schema.py
 
 spark:
@@ -252,3 +257,48 @@ features:
     mortgage_rate_30y: {keep: false, reason: "national: identical for every loan in a month, cannot change the within-month ranking; time proxy"}
     mortgage_rate_30y_chg_3m: {keep: false, reason: "national: identical for every loan in a month, cannot change the within-month ranking; time proxy"}
     mortgage_rate_30y_chg_12m: {keep: false, reason: "national: identical for every loan in a month, cannot change the within-month ranking; time proxy"}
+
+tracking:
+  # MLflow 3.16 refuses the file store the spec names; SQLite is its local
+  # replacement. Everything stays under mlruns/, which is git-ignored.
+  mlflow_tracking_uri: sqlite:///mlruns/mlflow.db
+  mlflow_artifact_dir: mlruns/artifacts
+  mlflow_experiment: collections-prioritisation
+
+models:
+  # Base rate in train is ~0.40 (Stage 2): not imbalanced, so no resampling
+  # and no scale_pos_weight, both of which would damage calibration.
+  lightgbm:
+    params:
+      objective: binary
+      metric: auc
+      learning_rate: 0.03
+      num_leaves: 63
+      min_data_in_leaf: 200
+      feature_fraction: 0.8
+      bagging_fraction: 0.8
+      bagging_freq: 5
+      lambda_l2: 1.0
+      deterministic: true
+      force_row_wise: true
+      verbosity: -1
+    num_boost_round: 3000
+    early_stopping_rounds: 100
+  woe_logistic:
+    max_n_prebins: 20
+    min_prebin_size: 0.02
+    C: 1.0
+    max_iter: 2000
+  segment_buckets: [1, 2, 3]
+  # Segmented models are chosen over the pooled one only if they beat it on
+  # validation AUC by at least this much; otherwise the simpler pooled model
+  # wins. Set after the first validation run showed a 0.0004 difference,
+  # before any test evaluation (see methodology).
+  segmented_min_auc_gain: 0.005
+  calibration:
+    reliability_bins: 10
+    decile_bins: 10
+  importance_top_n: 20
+  # Structural test-phase check: validation and test AUC in the same
+  # neighbourhood. A tolerance, not a target.
+  max_val_test_auc_gap: 0.05
