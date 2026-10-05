@@ -1,0 +1,16 @@
+feature,baseline_mean_psi,max_psi_2020_21,excess,peak_month
+max_bucket_last_12,1.09577,8.07959,6.98382,2020-01-01
+max_bucket_before_t,1.68250,8.41769,6.73518,2020-01-01
+max_bucket_last_6,0.90342,7.63373,6.73031,2020-01-01
+max_bucket_last_3,0.73528,7.21704,6.48175,2020-01-01
+unemployment_rate_chg_3m,2.49510,8.94801,6.45291,2020-10-01
+n_roll_events_last_12,1.24161,7.33232,6.09071,2020-01-01
+months_delinquent_last_3,0.97139,6.92879,5.95740,2020-01-01
+n_roll_events_last_6,0.67766,6.47449,5.79683,2020-01-01
+mean_bucket_last_12,1.53250,7.21858,5.68608,2020-01-01
+mean_bucket_last_6,1.19006,6.85852,5.66847,2020-01-01
+mean_bucket_last_3,0.90558,6.55392,5.64834,2020-01-01
+months_delinquent_last_6,1.37939,6.99288,5.61349,2020-01-01
+longest_delinquent_run_before_t,2.36367,7.77701,5.41333,2020-01-01
+bucket_lag_1,0.55203,5.94632,5.39429,2020-01-01
+months_delinquent_last_12,1.95829,7.22435,5.26606,2020-01-01

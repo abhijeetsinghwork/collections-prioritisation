@@ -51,6 +51,33 @@ state, 3/6/12-month delinquency trajectory, publication-lagged state
 unemployment and house prices). Test AUC is 0.724, against 0.639 for days
 past due alone and 0.704 for a WOE-binned logistic regression.
 
+## Through a shock (2020–21)
+
+![Frozen model through the 2020-21 shock: PSI, AUC, predicted vs actual roll rate](outputs/figures/drift_monitor_monitoring.png)
+
+The frozen model was scored, unchanged, on every delinquent account through
+the pandemic. Each monitored series is compared with its own 2018–19 range
+(shaded):
+
+- **Calibration broke first (March 2020).** 44% of accounts rolled against
+  34% predicted, then 71% against 28% in April. March's inputs were still
+  normal; its outcomes, three months ahead, were not.
+- **Then ranking collapsed (April 2020, AUC 0.49), and inputs moved.**
+  Delinquent accounts nearly tripled, and 71% of them were in forbearance
+  (1% before), so "rolling deeper" mostly meant missed payments under
+  forbearance, not the distress the model learned from.
+- **Recovery was uneven.** Ranking was back in its normal range from
+  September 2020; the model under-predicted the roll rate for eleven months
+  before calibration returned.
+- **Monitoring lesson.** Calibration goes wrong first, but it needs outcomes,
+  so it is only measurable three months later. Input drift (PSI) is visible
+  at once. Both are needed, measured against recent normal months: against
+  the 2000–15 training data, 11–15 features exceed the usual 0.25 PSI
+  threshold even in calm 2018–19.
+
+Details, including a first run whose result turned out to be an artefact of
+the split design, are in the [methodology](docs/methodology.md#stage-6--drift-study).
+
 ## Data
 
 [Freddie Mac Single-Family Loan-Level Dataset](https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset),
@@ -95,14 +122,14 @@ Read these before reusing any number from this project.
 - **Macro features use today's revised data.** FRED serves revised series,
   not the values published at the time. Publication lags are applied, but a
   small look-ahead remains in that feature family.
-- **The pandemic years are not evaluated yet.** 2020–21 forbearance changed
-  what delinquency means, and those years are held out for a drift study
-  (not yet built). Nothing here says how the model behaves through a shock
-  like that.
+- **The model did not survive the 2020 shock.** Through pandemic forbearance
+  its calibration broke and, for a month, its ranking was no better than
+  random (see [below](#through-a-shock-2020-21)). The headline result is for
+  2018–19, a calm period; it says nothing about performance in a crisis.
 
 ## How it was built
 
-Five stages, each with structural acceptance checks that must pass before the
+Six stages, each with structural acceptance checks that must pass before the
 next stage runs. Every decision, including the ones that turned out wrong, is
 in [docs/methodology.md](docs/methodology.md).
 
@@ -113,6 +140,7 @@ in [docs/methodology.md](docs/methodology.md).
 | 3. Features | 71 candidates → 58 kept, each with a written reason | Every feature declares its time window; a test perturbs later months and asserts no feature moves |
 | 4. Models | Baseline, WOE logistic, LightGBM pooled and per-bucket | Test read only after freezing; every test evaluation logged with a timestamp |
 | 5. Policy | Ranks the queue each month under six policies | The ranking function raises if it receives the outcome |
+| 6. Drift | PSI and monthly AUC/calibration through 2020–21 | Monitoring population checked feature-for-feature against Stage 3 |
 
 Experiments are tracked in MLflow (local SQLite store under `mlruns/`, not
 committed). Test was evaluated four times: three during the calibration
@@ -134,6 +162,7 @@ make check                  # lint, type-check, tests (no data needed)
 # place the sample files in data/raw/ (see docs/download.md), then:
 make macro                  # download FRED series (no API key)
 make all                    # ingest -> labels -> features -> train -> test scoring -> policy
+make drift                  # optional: the 2020-21 drift study
 ```
 
 From an empty `data/` (raw files only), `make all` ran in under 8 minutes on

@@ -24,6 +24,11 @@ what replaced them.
   loan sales (code 16) are censored, not labelled (Stage 2); features
   declare and test their time windows (Stage 3); macro series are lagged to
   publication date (Stage 3).
+- **Drift (Stage 6).** Through the 2020 shock, calibration broke first
+  (March 2020), a month before discrimination collapsed (April, AUC 0.49) and
+  inputs moved; but only input drift is observable in real time, since
+  outcomes take three months. A first run on the disjoint splits was
+  dominated by a split-boundary artefact and is kept on record.
 - **Limitations** are in the [README](../README.md#limitations).
 
 ---
@@ -624,6 +629,168 @@ design, and it is recorded rather than trimmed.
 Artifacts: `outputs/tables/policy_*_test.csv`,
 `outputs/figures/capture_curve_test.png` (README hero) and
 `monthly_capture_test.png`; MLflow run `stage5-policy-test`.
+
+---
+
+## Stage 6 — Drift study
+
+### Protocol (fixed before any drift metric was computed)
+
+`python -m src.s6_drift` scores nothing new: it reads the per-row scores the
+frozen Stage 4 model already wrote for 2018–19 (test) and 2020–21
+(drift_study), and predicts the frozen booster on train only to get the
+score's reference distribution. No model is fitted, chosen or recalibrated,
+and there is no new test evaluation.
+
+- **Reference** is train (2000–2015). Every monitored month is compared with
+  it: PSI for each of the 58 kept features and for the model's raw score, with
+  bins fixed on train (deciles for numerics, observed levels for
+  categoricals, nulls and unseen levels in their own bins).
+- **Monthly metrics:** within-month AUC (raw score), calibration in the large
+  (mean frozen probability minus actual roll rate) and ECE.
+- **"Degrades first":** each series gets a band of mean ± 2 sd over the 24
+  baseline months (2018–19). A series degrades at the first 2020–21 month
+  that starts **two consecutive months** outside its band in the bad
+  direction (PSI and calibration error up, AUC down). A relative rule is
+  needed because the baseline months already differ from train (time, plus
+  the first-episode selection from Stage 2), so fixed PSI thresholds would
+  fire before the shock; the conventional 0.10 / 0.25 PSI bands are still
+  reported. Two consecutive months guards against a one-month blip.
+- **Structural checks:** the 2018–19 pooled AUC computed here must equal the
+  logged Stage 4 test AUC (proves these are the frozen model's scores); PSI
+  between two random halves of train must be ~0 (max 0.01); every monitored
+  month must be present; every PSI finite and non-negative.
+
+**Seen before the rule was fixed.** While planning, the monthly volume, roll
+rate and mean prediction of the drift window were printed: delinquent
+accounts jump from about 1,000 a month to 7,665 in 2020-04, the roll rate
+reaches 0.77 against a predicted 0.24, and in 2020-03 the roll rate (0.41)
+already exceeds the prediction (0.26). No PSI or AUC had been computed. The
+rule above does not depend on those numbers, but the reader should know they
+were seen.
+
+### First run: the split design dominates the monitor
+
+All structural checks passed (the pooled 2018–19 AUC matched the logged
+Stage 4 value to five decimals; split-half PSI on train was at most 0.0003).
+The departure rule, as fixed, reported:
+
+| Series | First sustained departure |
+|---|---|
+| Median feature PSI | 2020-01 |
+| AUC | 2020-01 |
+| Calibration in the large | 2020-03 |
+| ECE | 2020-03 |
+| Model-score PSI | none |
+
+**The 2020-01 departures are an artefact, not the pandemic.** Splits are
+disjoint by loan (Stage 2), so every window restarts with loans that have
+never been delinquent before: the share of first-episode accounts is 13.8%
+in train, but **100%** in both 2018-01 and 2020-01 (33.7% by 2019-12). For
+those accounts every history feature (`max_bucket_before_t`,
+`times_entered_delinquency_before_t`, …) is empty, so feature PSI is huge
+at the start of each window (median 2.75 in 2018-01, 2.94 in 2020-01) and
+decays as the population refills, and within-month AUC dips because the
+strongest features carry nothing (0.598 in 2018-01; 0.574 and 0.636 in
+2020-01/02). The baseline band inherits the same decay, so it is too wide to
+detect anything in PSI: the model-score PSI never leaves it.
+
+What survives: **calibration broke in 2020-03**, when outcomes jumped
+(roll rate 0.41, then 0.77 in 2020-04, against predictions of 0.26 and 0.24)
+while the inputs that measure the same population had not yet moved
+relative to the start of the window. Both recovered into their baseline
+bands by mid-2020 (calibration gap from 2020-06, AUC from 2020-07, then AUC
+0.71–0.80 through 2021), but the sign of the calibration error flipped: the
+model **under**-predicted the roll rate in every month from 2020-03 to
+2021-01, whereas in 2018–19 it over-predicted in 23 of 24 months.
+
+The rule is not changed after seeing this. Any fix is a follow-up with its
+own protocol, reported alongside this run.
+
+### Follow-up: monitor the population a deployed model would score
+
+Decided with the project owner after the first run. A deployed model scores
+every delinquent account each month, not only loans in their first split.
+`src/s6_population.py` builds that population for 2018–21 with the **same**
+label and feature functions as Stages 2 and 3, dropping only the
+one-split-per-loan rule (230,309 account-months against 102,605). Stages 2–4
+outputs and stamps are untouched, and the departure rule is unchanged.
+Both populations are reported (`drift_*_split.csv`, `drift_*_monitoring.csv`).
+
+Extra structural checks, all passed: every Stage 2/3 row in the monitored
+windows is in the monitoring population, and on those 102,605 rows all 58
+features are identical to Stage 3's table; AUC on the official test rows
+equals the logged 0.72385. The first-episode share is now 9–24% across
+2018–19 and 12% in 2020-01 (it was 100% at the start of each window in the
+split population), so the window-boundary artefact is gone.
+
+### Results (monitoring population)
+
+| Series | First sustained departure | Value then | Baseline band |
+|---|---|---|---|
+| AUC | 2020-01 | 0.688, then 0.678 | 0.697–0.754 |
+| Calibration in the large | 2020-03 | −0.106, then −0.427 | −0.006–0.083 |
+| ECE | 2020-03 | 0.106, then 0.427 | 0.012–0.078 |
+| Median feature PSI | 2020-04 | 0.522 | 0.012–0.060 |
+| Model-score PSI | 2020-06 | 0.821 | 0.078–0.287 |
+
+What happened, in order:
+
+1. **2020-01/02: a mild AUC slip.** Within-month AUC fell just below the
+   band (0.688, 0.678) before the pandemic, with inputs and calibration still
+   normal. The baseline had one single-month dip of the same size (2019-07,
+   0.690), so this is weak evidence: it could be early softening or noise,
+   and this data cannot tell which. By the rule as fixed, though, it is the
+   first departure.
+2. **2020-03: calibration breaks.** The model predicted a 0.34 roll rate;
+   0.44 rolled (April: 0.28 predicted, 0.71 rolled). March's *inputs* were
+   still pre-shock (median feature PSI 0.048, inside its band), but March's
+   *label* looks at April–June. Outcomes moved before inputs could.
+3. **2020-04: discrimination collapses and inputs move.** AUC 0.487, no
+   better than random. Delinquent accounts nearly tripled (4,487 to 12,370), 57%
+   of them first-time delinquents (baseline about 13%), and median feature
+   PSI jumped to 0.52. Among delinquent accounts, the share in **forbearance**
+   went from 1.2% (2019-12) to 71% (2020-04) and 82% (2020-06): loans in
+   forbearance were reported delinquent while not paying, so "rolls deeper"
+   in mid-2020 largely records forbearance, not the distress the model
+   learned from. The usual trajectory signal (a recent jump in bucket means
+   trouble) described the whole queue at once, and stopped separating it.
+4. **2020-06: the model score's own distribution departs.** It spiked in
+   April (PSI 0.68) but fell back inside the band in May, so by the
+   two-month rule it departs only in June.
+5. **Recovery.** Median feature PSI fell to about 0.1 by 2020-08 and sat at
+   0.05–0.07 through 2021, around the top of its band; AUC was back in its
+   band from 2020-09 (0.71–0.78 through 2021). The model **under**-predicted
+   the roll rate in every month from 2020-03 to 2021-01 (it over-predicted in
+   21 of 24 baseline months), then stayed within ±0.07 through 2021, while forbearance fell to 28% of delinquent accounts by 2021-06.
+
+**Which degrades first.** Of the shock-driven breaks, calibration went first
+(March), a month before the discrimination collapse and the input drift
+(April): consistent with the usual pattern that calibration goes before
+discrimination. Strictly by the rule, a small AUC slip in January–February
+came earlier still, and is reported as such.
+
+**When a monitor could have known.** Calibration and AUC need the outcome,
+which arrives three months later: March 2020's calibration error was only
+measurable at the end of June. Feature PSI needs no outcome: April's jump was
+visible in April. In time-of-availability terms the input monitor raises
+the alarm first, even though calibration is the first thing to actually go
+wrong. Production monitoring needs both: PSI for early warning, and a
+separate, outcome-based recalibration trigger, because the model can be
+miscalibrated for a month before any input moves, and stays miscalibrated
+(here, eleven months of under-prediction) after inputs return to normal.
+
+**Absolute PSI thresholds would not have worked here.** Against train,
+11–15 of the 58 features sit above the conventional 0.25 band in **every**
+2018–19 month: macro levels (2018–19 unemployment was unlike 2000–2015),
+interest rates, channel. A fixed threshold would alert permanently; a band
+relative to recent normal months does not. The PSI heatmap ranks features by
+their 2020–21 peak above their 2018–19 level for the same reason.
+
+Artifacts: `outputs/figures/drift_monitor_monitoring.png`,
+`drift_psi_heatmap_monitoring.png` (and the `_split` versions from the first
+run); `outputs/tables/drift_*`; MLflow runs `stage6-drift-monitoring` and
+`stage6-drift-split`.
 
 ---
 

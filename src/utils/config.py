@@ -25,6 +25,7 @@ class PathsConfig(_Strict):
     labels_dir: Path
     macro_dir: Path
     features_dir: Path
+    monitor_features_dir: Path
     feature_audit_table: Path
     models_dir: Path
     scores_dir: Path
@@ -234,6 +235,28 @@ class PolicyConfig(_Strict):
         return self
 
 
+class DriftConfig(_Strict):
+    reference_split: str
+    baseline_split: str
+    monitored_splits: list[str] = Field(min_length=1)
+    psi_bins: int = Field(gt=1)
+    psi_floor: float = Field(gt=0, lt=0.01)
+    psi_bands: tuple[float, float]
+    band_sd: float = Field(gt=0)
+    consecutive_months: int = Field(gt=0)
+    split_half_max_psi: float = Field(gt=0)
+    auc_match_tolerance: float = Field(gt=0)
+    heatmap_top_n: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _baseline_monitored(self) -> DriftConfig:
+        if self.baseline_split not in self.monitored_splits:
+            raise ValueError("drift.baseline_split must be one of drift.monitored_splits")
+        if self.reference_split in self.monitored_splits:
+            raise ValueError("drift.reference_split cannot also be monitored")
+        return self
+
+
 class AcceptanceConfig(_Strict):
     # check id -> reason. Only checks listed here can be accepted.
     accepted_failures: dict[Literal["calibration_improves_on_test"], str]
@@ -257,6 +280,7 @@ class Config(_Strict):
     tracking: TrackingConfig
     models: ModelsConfig
     policy: PolicyConfig
+    drift: DriftConfig
     acceptance: AcceptanceConfig
 
     @model_validator(mode="after")
@@ -275,6 +299,9 @@ class Config(_Strict):
             raise ValueError(f"checks.monotonic_splits names unknown splits: {sorted(unknown)}")
         if self.policy.split not in names:
             raise ValueError(f"policy.split names an unknown split: {self.policy.split}")
+        drift_splits = {self.drift.reference_split, *self.drift.monitored_splits}
+        if drift_splits - set(names):
+            raise ValueError(f"drift names unknown splits: {sorted(drift_splits - set(names))}")
         return self
 
 

@@ -10,7 +10,7 @@ from src.utils import config_stamp as cs
 
 TOY = {
     "up": cs.Stage(("ingest",), ("up.py",), inputs=("raw/*.txt",)),
-    "down": cs.Stage(("policy",), ("down.py",), upstream="up"),
+    "down": cs.Stage(("policy",), ("down.py",), upstream=("up",)),
 }
 
 
@@ -79,5 +79,4 @@ def test_every_real_stage_source_exists(cfg):
     for name, stage in cs.STAGES.items():
         for src in stage.sources:
             assert os.path.exists(src), f"{name}: {src}"
-        if stage.upstream:
-            assert stage.upstream in cs.STAGES
+        assert set(stage.upstream) <= set(cs.STAGES)

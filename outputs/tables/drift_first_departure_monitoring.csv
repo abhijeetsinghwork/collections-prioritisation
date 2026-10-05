@@ -1,0 +1,6 @@
+series,bad_direction,band_lo,band_hi,first_departure,value_then,worst_in_window
+score_psi,up,0.07797,0.28677,2020-06-01,0.82138,0.82138
+median_feature_psi,up,0.01149,0.05957,2020-04-01,0.52233,0.52233
+auc,down,0.69705,0.75378,2020-01-01,0.68809,0.48748
+abs_gap,up,-0.00596,0.08258,2020-03-01,0.10566,0.42652
+ece,up,0.01198,0.07757,2020-03-01,0.10566,0.42652

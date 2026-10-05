@@ -6,7 +6,7 @@ re-runs when, and only when, something it depends on changes *in content*:
 - its own config sections (the validated values, so comments and key order do not count);
 - the bytes of its source files (a git checkout or merge rewrites mtimes, not content);
 - its external inputs (raw and macro files: name, size and mtime; never in git);
-- the stamp of the stage upstream, so a change propagates down the chain.
+- the stamps of the stages upstream, so a change propagates down the chain.
 
 ``src/utils/config.py`` is not hashed: the stamp already holds the validated
 config values, so adding a config class for one stage does not re-run the rest.
@@ -31,7 +31,7 @@ SPARK = ("src/spark.py", "src/utils/schema.py")
 class Stage:
     sections: tuple[str, ...]
     sources: tuple[str, ...]
-    upstream: str | None = None
+    upstream: tuple[str, ...] = ()
     inputs: tuple[str, ...] = field(default=())  # globs, relative to the repo root
 
 
@@ -44,7 +44,7 @@ STAGES: dict[str, Stage] = {
     "labels": Stage(
         ("labels", "splits"),
         ("src/s2_labels.py", "src/pipeline/labels.py", "src/pipeline/label_checks.py", *SPARK),
-        upstream="ingest",
+        upstream=("ingest",),
     ),
     "features": Stage(
         ("features",),
@@ -57,7 +57,7 @@ STAGES: dict[str, Stage] = {
             "src/utils/leakage.py",
             *SPARK,
         ),
-        upstream="labels",
+        upstream=("labels",),
         inputs=("data/raw/macro/*.csv",),
     ),
     "models": Stage(
@@ -71,18 +71,55 @@ STAGES: dict[str, Stage] = {
             "src/utils/leakage.py",
             "src/utils/plots.py",
         ),
-        upstream="features",
+        upstream=("features",),
     ),
     "policy": Stage(
         ("policy", "random_seed"),
         ("src/s5_policy.py", "src/pipeline/policy.py", "src/utils/plots.py"),
-        upstream="models",
+        upstream=("models",),
+    ),
+    "drift_population": Stage(
+        ("labels", "splits", "features", "drift"),
+        (
+            "src/s6_population.py",
+            "src/s3_features.py",
+            "src/pipeline/labels.py",
+            "src/pipeline/features.py",
+            "src/pipeline/macro.py",
+            *SPARK,
+        ),
+        upstream=("ingest",),
+        inputs=("data/raw/macro/*.csv",),
+    ),
+    "drift": Stage(
+        ("drift", "random_seed"),
+        (
+            "src/s6_drift.py",
+            "src/pipeline/drift.py",
+            "src/pipeline/evaluation.py",
+            "src/pipeline/feature_audit.py",
+            "src/s5_policy.py",
+            "src/utils/plots.py",
+            "src/utils/drift_plots.py",
+        ),
+        upstream=("models", "drift_population"),
     ),
 }
 
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _upstream(
+    spec: Stage, cfg: Config, root: Path, stages: dict[str, Stage]
+) -> str | dict[str, str] | None:
+    # None / one hash / name->hash: zero and one upstream keep the original stamp
+    # format, so adding multi-upstream stages did not invalidate existing stamps.
+    hashes = {u: _sha(stamp_text(u, cfg, root, stages).encode()) for u in spec.upstream}
+    if len(hashes) <= 1:
+        return next(iter(hashes.values()), None)
+    return hashes
 
 
 def stamp_text(
@@ -104,9 +141,7 @@ def stamp_text(
         "config": {k: dumped[k] for k in spec.sections},
         "sources": {s: _sha((root / s).read_bytes()) for s in spec.sources},
         "inputs": inputs,
-        "upstream": (
-            _sha(stamp_text(spec.upstream, cfg, root, stages).encode()) if spec.upstream else None
-        ),
+        "upstream": _upstream(spec, cfg, root, stages),
     }
     return json.dumps(payload, indent=1, sort_keys=True)
 

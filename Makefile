@@ -16,6 +16,8 @@ LABELS_DONE   := data/processed/.s2_labels.done
 FEATURES_DONE := data/processed/.s3_features.done
 TRAIN_DONE    := data/processed/.s4_fit.done
 POLICY_DONE   := data/processed/.s5_policy.done
+DRIFT_DONE    := data/processed/.s6_drift.done
+POPULATION_DONE := data/processed/.s6_population.done
 MACRO_DONE    := data/raw/macro/MORTGAGE30US.csv
 # Test scores are written by the frozen models' (logged) test evaluation.
 EQ := =
@@ -90,8 +92,14 @@ policy: $(POLICY_DONE)  ## stage 5: capture of each contact policy on the test w
 $(POLICY_DONE): $(STAMPS)/policy.json $(TEST_SCORES) | $(TRAIN_DONE)
 	$(RUN) python -m src.s5_policy
 
-drift:  ## stage 6
-	@echo "stage 6 not built yet" && exit 1
+drift: $(DRIFT_DONE)  ## stage 6: PSI and model metrics through the 2020-21 shock
+$(DRIFT_DONE): $(STAMPS)/drift.json $(TEST_SCORES) | $(TRAIN_DONE) $(FEATURES_DONE) $(POPULATION_DONE)
+	$(RUN) python -m src.s6_drift --population split
+	$(RUN) python -m src.s6_drift
+
+# Every delinquent account-month in the monitored windows (not one split per loan).
+$(POPULATION_DONE): $(STAMPS)/drift_population.json | $(INGEST_DONE) $(MACRO_DONE)
+	$(RUN) python -m src.s6_population
 
 all: ingest labels features train policy  ## full pipeline
 

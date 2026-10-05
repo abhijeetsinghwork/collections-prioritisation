@@ -12,6 +12,7 @@ paths:
   labels_dir: data/processed/labels
   macro_dir: data/raw/macro
   features_dir: data/processed/features
+  monitor_features_dir: data/processed/monitor_features   # stage 6: all delinquent rows in drift windows
   feature_audit_table: outputs/tables/feature_audit.csv
   models_dir: data/processed/models
   scores_dir: data/processed/scores
@@ -324,6 +325,26 @@ policy:
   # by_balance carries no risk information, so its capture should be close to
   # the share of balance held by the largest accounts (check 6).
   balance_share_tolerance: 0.05
+
+drift:
+  # Stage 6. Fixed before any drift metric was computed. The frozen model is
+  # scored, never refit; no split is used to choose anything.
+  reference_split: train          # what "no drift" means: the training distribution
+  baseline_split: test            # 2018-19: pre-shock months monitored the same way
+  monitored_splits: [test, drift_study]
+  psi_bins: 10                    # numeric features: train deciles; nulls get their own bin
+  psi_floor: 1.0e-4               # empty-bin share floor so PSI stays finite
+  psi_bands: [0.10, 0.25]         # conventional reporting bands, not targets
+  # "Degrades first": a series degrades at the first drift-window month that
+  # starts a run of `consecutive_months` outside its baseline band (mean +/-
+  # band_sd * sd over the baseline months), in the bad direction.
+  band_sd: 2.0
+  consecutive_months: 2
+  # Structural check: PSI between two random halves of train must be ~0.
+  split_half_max_psi: 0.01
+  # The drift module's pooled test AUC must equal the logged Stage 4 test AUC.
+  auc_match_tolerance: 1.0e-4
+  heatmap_top_n: 15
 
 acceptance:
   # Acceptance checks that failed, were investigated, and are knowingly
