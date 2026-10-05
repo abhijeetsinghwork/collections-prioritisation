@@ -1,3 +1,5 @@
-method,fit_rows,eval_rows,eval_from,eval_to,brier,ece
-raw,0,18281,2017-01-01,2017-12-01,0.19305,0.04703
-isotonic,9155,18281,2017-01-01,2017-12-01,0.19297,0.03767
+method,fit_rows,eval_rows,eval_from,eval_to,brier,ece,beats_raw,chosen
+raw,0,18281,2017-01-01,2017-12-01,0.19305,0.04703,False,False
+isotonic,9155,18281,2017-01-01,2017-12-01,0.19297,0.03767,True,False
+platt,9155,18281,2017-01-01,2017-12-01,0.19222,0.03667,True,True
+intercept_shift,9155,18281,2017-01-01,2017-12-01,0.19236,0.03857,True,False

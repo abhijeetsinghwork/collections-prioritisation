@@ -419,3 +419,46 @@ enough to estimate a calibration map that holds in the next period. Stage 5
 should therefore report its policy results under both calibrated and raw
 probabilities, so the reader can see how much the ranking depends on this
 choice, with the frozen (isotonic) result as the primary number.
+
+### Second follow-up: is it the method, or the window?
+
+Decided with the project owner: try other calibration methods, chosen by a
+rule fixed in config before running, still without test data. Candidates fit
+on validation minus its last 12 months and scored on those months; the
+lowest held-out ECE among methods beating raw on both Brier and ECE wins.
+
+| 2017 holdout (fit on 2016) | Brier | ECE | Beats raw |
+|---|---|---|---|
+| Raw | 0.1931 | 0.0470 | – |
+| Isotonic | 0.1930 | 0.0377 | yes |
+| **Platt (chosen)** | 0.1922 | 0.0367 | yes |
+| Intercept shift | 0.1924 | 0.0386 | yes |
+
+Platt was frozen (refit on all of validation) and test was evaluated a third
+time (logged):
+
+| Test, pooled LightGBM | Raw | Isotonic (2nd eval) | Platt (3rd eval) |
+|---|---|---|---|
+| Brier | **0.1627** | 0.1646 | 0.1643 |
+| ECE | **0.0135** | 0.0444 | 0.0428 |
+
+**The calibration acceptance check fails for every method fitted on
+validation, by about the same amount.** After Platt scaling every test decile
+over-predicts by 0.02–0.07. This is a level shift, not a shape problem: in
+2016–17, loans rolled more often than the model predicted, so any map fitted
+there raises predictions; in 2018–19 they rolled about as often as the raw
+model (trained on 2000–2015) predicts. Every map was lifting predictions by
+roughly the 2016–17 shortfall, and that shortfall did not continue into
+2018–19. No method can fix that from the validation window alone.
+
+A longer calibration window was considered and not attempted: validation is
+the only out-of-sample period for the frozen model before test, so a longer
+window would mean calibrating a different model trained on fewer years.
+
+**Conclusion.** Calibration from the most recent out-of-sample window does
+not transfer forward here. The frozen pipeline uses Platt; Stage 5 reports
+policy results under both the frozen calibrated probabilities and raw
+probabilities, so the effect of this choice on the ranking is visible. Test
+has now been evaluated three times; every evaluation is in
+`outputs/tables/test_evaluations.csv`, and the AUC results never changed
+(the boosters are identical across all three).
