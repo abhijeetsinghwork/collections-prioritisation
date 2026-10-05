@@ -23,6 +23,9 @@ class PathsConfig(_Strict):
     perf_glob: str
     panel_dir: Path
     labels_dir: Path
+    macro_dir: Path
+    features_dir: Path
+    feature_audit_table: Path
     schema_module: Path
 
 
@@ -103,6 +106,57 @@ class SplitConfig(_Strict):
         return dt.date.fromisoformat(f"{self.end}-01")
 
 
+class MacroConfig(_Strict):
+    url: str
+    state_series: dict[str, str]
+    national_series: dict[str, str]
+    publication_lag_months: dict[str, int]
+    change_windows: list[int]
+
+    @model_validator(mode="after")
+    def _lag_for_every_series(self) -> MacroConfig:
+        names = set(self.state_series) | set(self.national_series)
+        missing = names - set(self.publication_lag_months)
+        if missing:
+            raise ValueError(f"no publication lag configured for: {sorted(missing)}")
+        if any(v < 0 for v in self.publication_lag_months.values()):
+            raise ValueError("publication lags must be >= 0")
+        return self
+
+
+class AuditConfig(_Strict):
+    tree_max_leaf_nodes: int = Field(gt=1)
+    tree_min_samples_leaf: int = Field(gt=0)
+    encoding_smoothing: float = Field(ge=0)
+
+
+class FeatureDecision(_Strict):
+    keep: bool
+    reason: str = Field(min_length=3)
+
+
+class FeaturesConfig(_Strict):
+    trajectory_windows: list[int]
+    event_windows: list[int]
+    upb_change_windows: list[int]
+    velocity_lag: int = Field(gt=0)
+    bucket_lags: list[int]
+    macro: MacroConfig
+    audit: AuditConfig
+    decisions: dict[str, FeatureDecision]
+
+    @model_validator(mode="after")
+    def _windows_positive(self) -> FeaturesConfig:
+        for name in ("trajectory_windows", "event_windows", "upb_change_windows", "bucket_lags"):
+            if any(n <= 0 for n in getattr(self, name)):
+                raise ValueError(f"{name} must be positive month counts")
+        return self
+
+    def kept(self) -> list[str]:
+        """Return the features with an explicit keep decision, in config order."""
+        return [name for name, d in self.decisions.items() if d.keep]
+
+
 class Config(_Strict):
     random_seed: int
     paths: PathsConfig
@@ -111,6 +165,7 @@ class Config(_Strict):
     checks: ChecksConfig
     labels: LabelsConfig
     splits: list[SplitConfig] = Field(min_length=1)
+    features: FeaturesConfig
 
     @model_validator(mode="after")
     def _splits_ordered_and_known(self) -> Config:
