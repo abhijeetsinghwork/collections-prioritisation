@@ -1,0 +1,17 @@
+# Data — never commit. Freddie Mac terms forbid redistributing the raw dataset.
+data/
+*.parquet
+
+# Experiment tracking
+mlruns/
+
+# Environment
+.venv/
+.env
+__pycache__/
+
+# OS
+.DS_Store
+
+# Scratch figures (final README figures are force-added explicitly)
+outputs/figures/*.png
