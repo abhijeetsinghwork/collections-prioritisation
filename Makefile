@@ -24,6 +24,12 @@ FEATURES_DONE := data/processed/.s3_features.done
 TRAIN_DONE := data/processed/.s4_fit.done
 MODELS_SRC := src/s4_models.py src/pipeline/modeling.py src/pipeline/evaluation.py \
 	src/utils/plots.py src/utils/leakage.py src/pipeline/features.py $(COMMON)
+POLICY_DONE := data/processed/.s5_policy.done
+# Test scores are written by the frozen models' (logged) test evaluation. Make
+# re-runs that evaluation only when the scores are older than the freeze.
+EQ := =
+TEST_SCORES := data/processed/scores/split$(EQ)test/scores.parquet
+POLICY_SRC := src/s5_policy.py src/pipeline/policy.py src/utils/plots.py $(COMMON)
 MACRO_DONE := data/raw/macro/MORTGAGE30US.csv
 STAMPS := data/.stamps
 
@@ -85,8 +91,12 @@ $(TRAIN_DONE): $(FEATURES_DONE) $(STAMPS)/models.json $(MODELS_SRC)
 evaluate-test:  ## stage 4: score the FROZEN models on test (appends to the test log)
 	$(RUN) python -m src.s4_models --evaluate-test
 
-policy:  ## stage 5
-	@echo "stage 5 not built yet" && exit 1
+$(TEST_SCORES): $(TRAIN_DONE)
+	$(RUN) python -m src.s4_models --evaluate-test
+
+policy: $(POLICY_DONE)  ## stage 5: capture of each contact policy on the test window
+$(POLICY_DONE): $(TEST_SCORES) $(STAMPS)/policy.json $(POLICY_SRC)
+	$(RUN) python -m src.s5_policy
 
 drift:  ## stage 6
 	@echo "stage 6 not built yet" && exit 1

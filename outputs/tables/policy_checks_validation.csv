@@ -1,0 +1,24 @@
+ok,check
+True,1. random capture within 0.02 of the capacity (max deviation 0.0009 at C=0.50)
+True,2. oracle is the highest policy at every capacity (largest policy - oracle +0.0000)
+True,3. random strictly below oracle below full capacity (smallest gap 0.2676)
+True,3. by_dpd strictly below oracle below full capacity (smallest gap 0.2124)
+True,3. by_balance strictly below oracle below full capacity (smallest gap 0.2172)
+True,3. by_prob strictly below oracle below full capacity (smallest gap 0.2011)
+True,3. by_expected_value strictly below oracle below full capacity (smallest gap 0.1325)
+True,3. by_expected_value_raw strictly below oracle below full capacity (smallest gap 0.1349)
+True,4. by_dpd at or above random at every capacity (smallest margin +0.0000)
+True,4. by_balance at or above random at every capacity (smallest margin -0.0000)
+True,4. by_prob at or above random at every capacity (smallest margin +0.0000)
+True,4. by_expected_value at or above random at every capacity (smallest margin +0.0000)
+True,4. by_expected_value_raw at or above random at every capacity (smallest margin +0.0000)
+True,5. random non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,5. by_dpd non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,5. by_balance non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,5. by_prob non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,5. by_expected_value non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,5. by_expected_value_raw non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,5. oracle non-decreasing in capacity and 1.0 at full capacity (1.000000)
+True,6. by_balance (0.1956) tracks the balance share of the largest 10% (0.2314) within 0.05 at C=0.10
+True,6. by_balance (0.3616) tracks the balance share of the largest 20% (0.4010) within 0.05 at C=0.20
+True,6. by_balance (0.4968) tracks the balance share of the largest 30% (0.5356) within 0.05 at C=0.30

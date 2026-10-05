@@ -110,10 +110,16 @@ def save_frozen(cfg: Config, bundle: dict[str, Any], manifest: dict[str, Any]) -
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
 
 
+def load_manifest(cfg: Config) -> dict[str, Any]:
+    """Return the manifest that pins the frozen models."""
+    manifest: dict[str, Any] = json.loads((models_dir(cfg) / "manifest.json").read_text())
+    return manifest
+
+
 def load_frozen(cfg: Config) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return the frozen bundle and its manifest."""
     out = models_dir(cfg)
-    manifest = json.loads((out / "manifest.json").read_text())
+    manifest = load_manifest(cfg)
     bundle: dict[str, Any] = {
         POOLED: lgb.Booster(model_file=str(out / f"{POOLED}.txt")),
         SEGMENTED: {

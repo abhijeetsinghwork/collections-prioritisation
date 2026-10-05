@@ -20,6 +20,7 @@ STAGE_SECTIONS = {
     "labels": ["labels", "splits"],
     "features": ["features"],
     "models": ["models", "random_seed"],
+    "policy": ["policy", "random_seed"],
 }
 
 
