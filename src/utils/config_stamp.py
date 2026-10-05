@@ -78,6 +78,18 @@ STAGES: dict[str, Stage] = {
         ("src/s5_policy.py", "src/pipeline/policy.py", "src/utils/plots.py"),
         upstream="models",
     ),
+    "drift": Stage(
+        ("drift", "random_seed"),
+        (
+            "src/s6_drift.py",
+            "src/pipeline/drift.py",
+            "src/pipeline/evaluation.py",
+            "src/pipeline/feature_audit.py",
+            "src/s5_policy.py",
+            "src/utils/plots.py",
+        ),
+        upstream="models",
+    ),
 }
 
 

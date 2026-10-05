@@ -627,6 +627,45 @@ Artifacts: `outputs/tables/policy_*_test.csv`,
 
 ---
 
+## Stage 6 — Drift study
+
+### Protocol (fixed before any drift metric was computed)
+
+`python -m src.s6_drift` scores nothing new: it reads the per-row scores the
+frozen Stage 4 model already wrote for 2018–19 (test) and 2020–21
+(drift_study), and predicts the frozen booster on train only to get the
+score's reference distribution. No model is fitted, chosen or recalibrated,
+and there is no new test evaluation.
+
+- **Reference** is train (2000–2015). Every monitored month is compared with
+  it: PSI for each of the 58 kept features and for the model's raw score, with
+  bins fixed on train (deciles for numerics, observed levels for
+  categoricals, nulls and unseen levels in their own bins).
+- **Monthly metrics:** within-month AUC (raw score), calibration in the large
+  (mean frozen probability minus actual roll rate) and ECE.
+- **"Degrades first":** each series gets a band of mean ± 2 sd over the 24
+  baseline months (2018–19). A series degrades at the first 2020–21 month
+  that starts **two consecutive months** outside its band in the bad
+  direction (PSI and calibration error up, AUC down). A relative rule is
+  needed because the baseline months already differ from train (time, plus
+  the first-episode selection from Stage 2), so fixed PSI thresholds would
+  fire before the shock; the conventional 0.10 / 0.25 PSI bands are still
+  reported. Two consecutive months guards against a one-month blip.
+- **Structural checks:** the 2018–19 pooled AUC computed here must equal the
+  logged Stage 4 test AUC (proves these are the frozen model's scores); PSI
+  between two random halves of train must be ~0 (max 0.01); every monitored
+  month must be present; every PSI finite and non-negative.
+
+**Seen before the rule was fixed.** While planning, the monthly volume, roll
+rate and mean prediction of the drift window were printed: delinquent
+accounts jump from about 1,000 a month to 7,665 in 2020-04, the roll rate
+reaches 0.77 against a predicted 0.24, and in 2020-03 the roll rate (0.41)
+already exceeds the prediction (0.26). No PSI or AUC had been computed. The
+rule above does not depend on those numbers, but the reader should know they
+were seen.
+
+---
+
 ## Reproduction check (2026-10-05)
 
 The spec requires `make all` from a clean checkout plus `data/raw/` to
