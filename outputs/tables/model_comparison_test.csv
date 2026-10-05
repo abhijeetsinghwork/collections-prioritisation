@@ -1,0 +1,5 @@
+model,auc,pr_auc,brier_raw,brier_calibrated,ece_raw,ece_calibrated
+baseline_dq_bucket,0.63928,0.39182,,,,
+woe_logistic,0.70402,0.50587,0.16654,0.16849,0.03269,0.05294
+lgbm_pooled,0.72385,0.52272,0.16274,0.16425,0.01350,0.04280
+lgbm_segmented,0.72409,0.52224,0.16305,0.16470,0.01888,0.04648

@@ -26,6 +26,11 @@ class PathsConfig(_Strict):
     macro_dir: Path
     features_dir: Path
     feature_audit_table: Path
+    models_dir: Path
+    scores_dir: Path
+    tables_dir: Path
+    figures_dir: Path
+    test_log: Path
     schema_module: Path
 
 
@@ -157,6 +162,53 @@ class FeaturesConfig(_Strict):
         return [name for name, d in self.decisions.items() if d.keep]
 
 
+class LightGBMConfig(_Strict):
+    params: dict[str, str | int | float | bool]
+    num_boost_round: int = Field(gt=0)
+    early_stopping_rounds: int = Field(gt=0)
+
+
+class WoeLogisticConfig(_Strict):
+    max_n_prebins: int = Field(gt=1)
+    min_prebin_size: float = Field(gt=0, lt=1)
+    C: float = Field(gt=0)
+    max_iter: int = Field(gt=0)
+
+
+class CalibrationConfig(_Strict):
+    reliability_bins: int = Field(gt=1)
+    decile_bins: int = Field(gt=1)
+    transfer_holdout_months: int = Field(gt=0)
+    methods: list[Literal["isotonic", "platt", "intercept_shift"]] = Field(min_length=1)
+
+
+class TrackingConfig(_Strict):
+    mlflow_tracking_uri: str
+    mlflow_artifact_dir: Path
+    mlflow_experiment: str
+
+
+class ModelsConfig(_Strict):
+    lightgbm: LightGBMConfig
+    woe_logistic: WoeLogisticConfig
+    segment_buckets: list[int]
+    segmented_min_auc_gain: float = Field(ge=0)
+    calibration: CalibrationConfig
+    importance_top_n: int = Field(gt=0)
+    max_val_test_auc_gap: float = Field(gt=0, lt=1)
+
+
+class AcceptanceConfig(_Strict):
+    # check id -> reason. Only checks listed here can be accepted.
+    accepted_failures: dict[Literal["calibration_improves_on_test"], str]
+
+    @model_validator(mode="after")
+    def _reasons_given(self) -> AcceptanceConfig:
+        if any(len(r.strip()) < 20 for r in self.accepted_failures.values()):
+            raise ValueError("every accepted failure needs a real reason")
+        return self
+
+
 class Config(_Strict):
     random_seed: int
     paths: PathsConfig
@@ -166,6 +218,9 @@ class Config(_Strict):
     labels: LabelsConfig
     splits: list[SplitConfig] = Field(min_length=1)
     features: FeaturesConfig
+    tracking: TrackingConfig
+    models: ModelsConfig
+    acceptance: AcceptanceConfig
 
     @model_validator(mode="after")
     def _splits_ordered_and_known(self) -> Config:

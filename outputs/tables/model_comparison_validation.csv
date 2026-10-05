@@ -1,0 +1,5 @@
+model,auc,pr_auc
+baseline_dq_bucket,0.65778,0.47658
+woe_logistic,0.71348,0.58432
+lgbm_pooled,0.73925,0.61376
+lgbm_segmented,0.73960,0.61383

@@ -295,3 +295,181 @@ no decision.
 Each stage's `make` target depends on a stamp of only its own config section
 (`src/utils/config_stamp.py`), so editing a feature decision re-runs Stage 3
 but not the 15-minute ingest.
+
+---
+
+## Stage 4 — Models
+
+### Protocol
+
+`python -m src.s4_models` fits on train, early-stops and selects on
+validation, fits isotonic calibrators on validation, and freezes everything
+with a manifest (feature list, best iterations, config hash, git SHA). It
+never reads test. `python -m src.s4_models --evaluate-test` loads the frozen
+models, refuses to run if the kept features or model config changed since the
+freeze, and appends every evaluation to `outputs/tables/test_evaluations.csv`
+with a timestamp, so repeated looks at test are visible in git history.
+
+Training is deterministic: a second fit reproduced every validation number
+exactly. The train base rate is 0.398, so no resampling or class weights were
+used (both would damage calibration).
+
+MLflow 3.16 refuses the file store named in the spec (`file:./mlruns`); runs
+go to its local SQLite store under `mlruns/` instead, still git-ignored.
+
+### Validation
+
+| Model | AUC | PR-AUC | Brier (raw) |
+|---|---|---|---|
+| Baseline: `dq_bucket` alone | 0.6578 | 0.4766 | – |
+| WOE logistic | 0.7135 | 0.5843 | 0.1896 |
+| LightGBM pooled | 0.7392 | 0.6138 | 0.1833 |
+| LightGBM segmented by bucket | 0.7396 | 0.6138 | 0.1828 |
+
+**Segmented vs pooled is a tie.** Segmented won each bucket on validation by
+0.0006, 0.0013 and 0.0040 AUC (0.0004 overall); its bucket-2 and bucket-3
+models early-stopped at 69 and 50 rounds on small validation slices. The
+original rule ("higher validation AUC wins") would have picked segmented on
+noise. **After seeing those validation numbers, and before any test
+evaluation,** the rule was changed: segmented must beat pooled by at least
+0.005 validation AUC, otherwise the simpler pooled model is primary. Pooled
+was chosen. On test, pooled beat segmented in every bucket (0.6460 vs 0.6454,
+0.6182 vs 0.6122, 0.6299 vs 0.6237), which is consistent with segmentation
+having fitted validation noise; that test result was not used to choose.
+
+**Top features (gain, pooled)** are explicable: 3-month bucket velocity
+(20% of gain), recent maximum bucket, 3-month balance change (a balance that
+has not fallen means a missed payment), property state (foreclosure process
+and timelines differ sharply by state), the 12-month and lifetime trajectory,
+and the state house-price trend.
+
+The leakage guard was re-run on the final feature set: every booster uses
+exactly the 58 kept features and all pass the blocklist and window checks.
+
+### Test (evaluated once, 2026-10-05)
+
+| Model | AUC | PR-AUC | Validation AUC | Gap |
+|---|---|---|---|---|
+| Baseline: `dq_bucket` alone | 0.6393 | 0.3918 | 0.6578 | 0.019 |
+| WOE logistic | 0.7040 | 0.5059 | 0.7135 | 0.010 |
+| LightGBM pooled (primary) | 0.7238 | 0.5227 | 0.7392 | 0.015 |
+| LightGBM segmented | 0.7241 | 0.5222 | 0.7396 | 0.016 |
+
+Every model beats the baseline on test, and validation and test AUC are
+within 0.02 for every model.
+
+### Calibration did not survive to test (acceptance check failed)
+
+| Pooled LightGBM, test | Raw | Isotonic (fit on validation) |
+|---|---|---|
+| Brier | 0.1627 | 0.1646 |
+| ECE (10 bins) | 0.0135 | 0.0444 |
+
+Isotonic calibration fitted on validation made test calibration **worse**.
+The raw model was already well calibrated on test: its decile table tracks
+the actual roll rate within about 0.01–0.03 except the top decile
+(predicted 0.707, actual 0.656). The isotonic map raised predictions across
+the middle of the range (deciles 3–9 over-predict by 0.03–0.07 after
+calibration).
+
+The likely mechanism is that the calibration map learned something specific
+to the 2016–17 validation window that did not hold in 2018–19: the raw
+model under-predicted on validation and over-corrected for test. The splits
+also differ in composition (Stage 2: later splits contain only loans whose
+first delinquency falls in that window), so a single two-year calibration
+window is a weak basis for a map.
+
+Why it matters here: the score is P(roll) × balance, so miscalibration
+reorders the queue even when ranking by P(roll) alone is correct. A
+probability that is uniformly 0.05 too high does not change the order; one
+that is too high only in the middle of the range does, once multiplied by
+balances of different sizes.
+
+This is recorded as observed. Choosing raw over isotonic *because* of this
+test result would be a test-informed decision; any change to the calibration
+approach has to be a new experiment judged on data other than test, with
+this test result reported alongside it.
+
+### Follow-up experiment: does a calibration map carry forward in time?
+
+Decided with the project owner after the failure above, and fixed in config
+before it was run: fit isotonic on validation minus its last 12 months
+(2016, 9,155 rows), score the last 12 months (2017, 18,281 rows), and keep
+isotonic only if it improves **both** Brier and ECE over raw scores there.
+No test data is involved.
+
+| 2017 holdout (calibrator fit on 2016) | Brier | ECE |
+|---|---|---|
+| Raw | 0.1931 | 0.0470 |
+| Isotonic | 0.1930 | 0.0377 |
+
+Isotonic passed the rule, so it stays the downstream calibration. The Brier
+improvement is 0.0001, which is effectively nil; the rule was not tightened
+after the fact, because that would be choosing the rule from its result.
+
+The frozen models were re-fitted (identical boosters and validation AUCs) and
+re-evaluated on test; the test log shows both evaluations. Test numbers are
+unchanged and **the calibration acceptance check still fails** (Brier 0.1627
+raw vs 0.1646 isotonic; ECE 0.0135 vs 0.0444).
+
+What this shows: within 2016–17, a one-year-old calibration map still helped,
+so validation could not see the problem; the shift that breaks it happens
+between the validation and test windows. A single two-year window is not
+enough to estimate a calibration map that holds in the next period. Stage 5
+should therefore report its policy results under both calibrated and raw
+probabilities, so the reader can see how much the ranking depends on this
+choice, with the frozen (isotonic) result as the primary number.
+
+### Second follow-up: is it the method, or the window?
+
+Decided with the project owner: try other calibration methods, chosen by a
+rule fixed in config before running, still without test data. Candidates fit
+on validation minus its last 12 months and scored on those months; the
+lowest held-out ECE among methods beating raw on both Brier and ECE wins.
+
+| 2017 holdout (fit on 2016) | Brier | ECE | Beats raw |
+|---|---|---|---|
+| Raw | 0.1931 | 0.0470 | – |
+| Isotonic | 0.1930 | 0.0377 | yes |
+| **Platt (chosen)** | 0.1922 | 0.0367 | yes |
+| Intercept shift | 0.1924 | 0.0386 | yes |
+
+Platt was frozen (refit on all of validation) and test was evaluated a third
+time (logged):
+
+| Test, pooled LightGBM | Raw | Isotonic (2nd eval) | Platt (3rd eval) |
+|---|---|---|---|
+| Brier | **0.1627** | 0.1646 | 0.1643 |
+| ECE | **0.0135** | 0.0444 | 0.0428 |
+
+**The calibration acceptance check fails for every method fitted on
+validation, by about the same amount.** After Platt scaling every test decile
+over-predicts by 0.02–0.07. This is a level shift, not a shape problem: in
+2016–17, loans rolled more often than the model predicted, so any map fitted
+there raises predictions; in 2018–19 they rolled about as often as the raw
+model (trained on 2000–2015) predicts. Every map was lifting predictions by
+roughly the 2016–17 shortfall, and that shortfall did not continue into
+2018–19. No method can fix that from the validation window alone.
+
+A longer calibration window was considered and not attempted: validation is
+the only out-of-sample period for the frozen model before test, so a longer
+window would mean calibrating a different model trained on fewer years.
+
+**Conclusion.** Calibration from the most recent out-of-sample window does
+not transfer forward here. The frozen pipeline uses Platt; Stage 5 reports
+policy results under both the frozen calibrated probabilities and raw
+probabilities, so the effect of this choice on the ranking is visible. Test
+has now been evaluated three times; every evaluation is in
+`outputs/tables/test_evaluations.csv`, and the AUC results never changed
+(the boosters are identical across all three).
+
+### Accepted failure
+
+Agreed with the project owner: stop searching for a calibrator (each attempt
+is another look at test, and the evidence points at the window, not the
+method) and accept the calibration check as a documented failure. It is
+recorded in `config.yaml` under `acceptance.accepted_failures` with its
+reason; the config refuses an accepted failure without a substantive reason
+or for an unknown check. That section sits outside `models:`, so it does not
+change the frozen model. No fourth test evaluation was run: the third
+evaluation (Platt) is the one being accepted.
