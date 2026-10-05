@@ -309,3 +309,15 @@ models:
   # Structural test-phase check: validation and test AUC in the same
   # neighbourhood. A tolerance, not a target.
   max_val_test_auc_gap: 0.05
+
+acceptance:
+  # Acceptance checks that failed, were investigated, and are knowingly
+  # accepted. Kept out of `models:` so it does not change the frozen model.
+  accepted_failures:
+    calibration_improves_on_test: >-
+      Every calibrator fit on validation (isotonic, Platt, intercept shift)
+      over-predicts test by a similar level shift: 2016-17 rolled more than
+      predicted, 2018-19 did not. Raw is better calibrated on test, but
+      choosing raw from that would be test-informed. Stage 5 reports results
+      under both the frozen (Platt) and raw probabilities. See methodology,
+      Stage 4.

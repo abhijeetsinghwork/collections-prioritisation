@@ -100,3 +100,19 @@ def test_config_rejects_overlapping_splits(tmp_path):
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(pydantic.ValidationError, match="overlap"):
         load_config(path)
+
+
+@pytest.mark.parametrize(
+    ("failures", "match"),
+    [
+        ({"calibration_improves_on_test": "because"}, "real reason"),
+        ({"some_other_check": "a long enough reason for this check"}, "some_other_check"),
+    ],
+)
+def test_accepted_failures_need_a_known_check_and_a_reason(tmp_path, failures, match):
+    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())
+    raw["acceptance"]["accepted_failures"] = failures
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(pydantic.ValidationError, match=match):
+        load_config(path)

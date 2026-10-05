@@ -198,6 +198,17 @@ class ModelsConfig(_Strict):
     max_val_test_auc_gap: float = Field(gt=0, lt=1)
 
 
+class AcceptanceConfig(_Strict):
+    # check id -> reason. Only checks listed here can be accepted.
+    accepted_failures: dict[Literal["calibration_improves_on_test"], str]
+
+    @model_validator(mode="after")
+    def _reasons_given(self) -> AcceptanceConfig:
+        if any(len(r.strip()) < 20 for r in self.accepted_failures.values()):
+            raise ValueError("every accepted failure needs a real reason")
+        return self
+
+
 class Config(_Strict):
     random_seed: int
     paths: PathsConfig
@@ -209,6 +220,7 @@ class Config(_Strict):
     features: FeaturesConfig
     tracking: TrackingConfig
     models: ModelsConfig
+    acceptance: AcceptanceConfig
 
     @model_validator(mode="after")
     def _splits_ordered_and_known(self) -> Config:

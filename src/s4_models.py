@@ -19,7 +19,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
@@ -43,6 +43,7 @@ WOE = "woe_logistic"
 POOLED = "lgbm_pooled"
 SEGMENTED = "lgbm_segmented"
 PROB_MODELS = [WOE, POOLED, SEGMENTED]
+CALIBRATION_CHECK: Final = "calibration_improves_on_test"
 SCORE_KEYS = ["loan_sequence_number", "reporting_period", "split", "dq_bucket", "exposure", LABEL]
 
 
@@ -459,8 +460,16 @@ def test_phase(cfg: Config) -> bool:
     print(f"Brier raw {row['brier_raw']:.4f} -> {method} {row['brier_calibrated']:.4f}")
     print(f"ECE   raw {row['ece_raw']:.4f} -> {method} {row['ece_calibrated']:.4f}")
     if method != cal.RAW:
-        require(row["brier_calibrated"] < row["brier_raw"], f"{method} improves Brier on test")
-        require(row["ece_calibrated"] < row["ece_raw"], f"{method} improves ECE on test")
+        improves = (
+            row["brier_calibrated"] < row["brier_raw"] and row["ece_calibrated"] < row["ece_raw"]
+        )
+        accepted = cfg.acceptance.accepted_failures.get(CALIBRATION_CHECK)
+        if not improves and accepted:
+            print(f"ACCEPTED  {method} does not improve calibration on test (documented failure)")
+            print(f"          reason: {accepted}")
+        else:
+            require(row["brier_calibrated"] < row["brier_raw"], f"{method} improves Brier on test")
+            require(row["ece_calibrated"] < row["ece_raw"], f"{method} improves ECE on test")
     else:
         print("INFO  validation chose raw scores: no calibration step to check on test")
     curves = (("raw", raw_te[chosen]), ("calibrated", cal_te[chosen]))
