@@ -115,10 +115,10 @@ in [docs/methodology.md](docs/methodology.md).
 | 5. Policy | Ranks the queue each month under six policies | The ranking function raises if it receives the outcome |
 
 Experiments are tracked in MLflow (local SQLite store under `mlruns/`, not
-committed). Test was evaluated three times during the calibration
-investigation; all three are in
-[outputs/tables/test_evaluations.csv](outputs/tables/test_evaluations.csv), and
-the model's AUC was identical in each.
+committed). Test was evaluated four times: three during the calibration
+investigation and once by the clean-checkout reproduction below. All four
+are in [outputs/tables/test_evaluations.csv](outputs/tables/test_evaluations.csv),
+and the model's AUC was identical in each.
 
 ## Reproducing
 
@@ -136,9 +136,10 @@ make macro                  # download FRED series (no API key)
 make all                    # ingest -> labels -> features -> train -> test scoring -> policy
 ```
 
-Ingest takes about 15 minutes; the later stages take a few minutes each.
-Each stage rebuilds only when its config section, its source code or its
-inputs change. `make all` includes one logged test evaluation of the frozen
+From an empty `data/` (raw files only), `make all` ran in under 8 minutes on
+the MacBook it was built on and reproduced every committed table and figure
+byte for byte. Each stage rebuilds only when its config section, its source
+code or its inputs change. `make all` includes one logged test evaluation of the frozen
 model, because the policy simulation runs on test scores. Results land in
 `outputs/tables/` and `outputs/figures/`. All settings, including every
 threshold and the random seed, are in [config/config.yaml](config/config.yaml).

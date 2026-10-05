@@ -624,3 +624,22 @@ design, and it is recorded rather than trimmed.
 Artifacts: `outputs/tables/policy_*_test.csv`,
 `outputs/figures/capture_curve_test.png` (README hero) and
 `monthly_capture_test.png`; MLflow run `stage5-policy-test`.
+
+---
+
+## Reproduction check (2026-10-05)
+
+The spec requires `make all` from a clean checkout plus `data/raw/` to
+reproduce every number in the README. Run in a fresh git worktree of the
+README commit, with an empty `data/` apart from the raw files (symlinked,
+read-only), and its own environment from `uv.lock`:
+
+- Every stage passed its checks (the calibration check through its recorded
+  acceptance). Total run time was under 8 minutes.
+- Every committed output table and figure came out byte-identical.
+- The only difference is the test log: `make all` scores the frozen model on
+  test once, because the policy simulation needs test scores. That **fourth
+  test evaluation** is appended to `outputs/tables/test_evaluations.csv`, and
+  its metrics match the first three exactly. It changed nothing and was not
+  used to change anything.
+
