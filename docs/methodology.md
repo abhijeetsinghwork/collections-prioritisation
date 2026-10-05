@@ -104,11 +104,23 @@ classification, to be settled in Stage 2:
 | 96 | Confirmed defect | exclude |
 
 Code `16` matters more than it looks: in the 2015 vintage it terminates 108
-loans, more than codes 02, 03, 09 and 15 combined, and the loans it removes
+loans, more than codes 02, 03, 09 and 15 combined. Across all 25 vintages it
+terminates 5,850 loans, against 11,550 REO dispositions (09), 4,564 short
+sales (03), 3,286 third-party sales (02) and 1,284 whole loan sales (15).
+The loans it removes
 have delinquency histories (one spot-checked loan was 20 months delinquent,
 was modified, re-performed, then left with code 16). It is a sale of a
 reperforming loan out of the portfolio, not an observed credit outcome, which
 argues for treating it as censoring rather than as a roll or a cure.
+
+### Full ingest (all 25 vintages, 2000–2024)
+
+- 1,250,000 loans; 72,011,687 performance rows; 5 `XX` rows removed, giving
+  a 72,011,682-row panel covering reporting periods 2000-01 to 2026-03.
+- Zero malformed rows, cast failures, unmatched loans or duplicate
+  `(loan, period)` keys.
+- 188 loans have a missing month inside their history (see above).
+- 98,148 loan-months are `RA`.
 
 ### Environment
 
