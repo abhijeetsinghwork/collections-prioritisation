@@ -109,3 +109,39 @@ def test_segmented_prediction_routes_by_bucket():
         )
     with pytest.raises(ValueError, match="no segment model"):
         md.predict_segmented({1: boosters[1]}, spec, valid)
+
+
+# --- calibration transfer check ------------------------------------------------
+
+
+def _transfer_frame(raw, y, months):
+    periods = pd.date_range("2016-01-01", periods=months, freq="MS")
+    per = len(raw) // months
+    return pd.DataFrame(
+        {"reporting_period": np.repeat(periods, per)[: len(raw)], LABEL: y[: per * months]}
+    )
+
+
+def test_transfer_check_keeps_isotonic_when_miscalibration_is_stable():
+    from src.s4_models import calibration_transfer
+
+    rng = np.random.default_rng(1)
+    true_p = rng.uniform(0.05, 0.6, 24_000)
+    y = rng.binomial(1, true_p)
+    raw = np.clip(true_p * 1.5, 0, 1)  # same overconfidence in both years
+    table, method = calibration_transfer(_transfer_frame(raw, y, 24), raw, 12, 10)
+    assert method == "isotonic"
+    assert set(table["method"]) == {"raw", "isotonic"}
+    assert table["eval_rows"].iloc[0] == 12_000
+
+
+def test_transfer_check_falls_back_to_raw_when_the_map_does_not_carry_forward():
+    from src.s4_models import calibration_transfer
+
+    rng = np.random.default_rng(2)
+    raw = rng.uniform(0.05, 0.6, 24_000)
+    true_p = raw.copy()
+    true_p[:12_000] = np.clip(raw[:12_000] * 1.4, 0, 1)  # year 1 rolls more than predicted
+    y = rng.binomial(1, true_p)  # year 2: raw is right
+    _, method = calibration_transfer(_transfer_frame(raw, y, 24), raw, 12, 10)
+    assert method == "raw"

@@ -122,6 +122,7 @@ def load_frozen(cfg: Config) -> tuple[dict[str, Any], dict[str, Any]]:
         WOE: joblib.load(out / f"{WOE}.joblib"),
         "calibrators": joblib.load(out / "calibrators.joblib"),
         "spec": joblib.load(out / "matrix_spec.joblib"),
+        "calibration_method": manifest.get("calibration_method", "isotonic"),
     }
     # Boosters loaded from file report best_iteration 0 -> use the saved one.
     bundle[POOLED].best_iteration = manifest["best_iteration"][POOLED]
@@ -171,6 +172,46 @@ def per_bucket_table(
         for b, m in ev.per_bucket(y, s, bucket, buckets).items():
             rows.append({"model": name, "dq_bucket": b, **m})
     return pd.DataFrame(rows)
+
+
+def calibration_transfer(
+    valid: pd.DataFrame, raw: np.ndarray, holdout_months: int, n_bins: int
+) -> tuple[pd.DataFrame, str]:
+    """Fit isotonic on validation minus its last ``holdout_months``, score those months.
+
+    Returns the comparison table and the method to use: "isotonic" only if it
+    improves both Brier and ECE over raw scores on the held-out months, else "raw".
+    """
+    periods = pd.to_datetime(valid["reporting_period"])
+    cutoff = periods.max() - pd.DateOffset(months=holdout_months)
+    early, late = (periods <= cutoff).to_numpy(), (periods > cutoff).to_numpy()
+    y = valid[LABEL].to_numpy()
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(raw[early], y[early])
+    p_iso = iso.predict(raw[late])
+    table = pd.DataFrame(
+        [
+            {
+                "method": name,
+                "fit_rows": int(early.sum()) if name == "isotonic" else 0,
+                "eval_rows": int(late.sum()),
+                "eval_from": str(periods[late].min().date()),
+                "eval_to": str(periods[late].max().date()),
+                "brier": ev.brier(y[late], p),
+                "ece": ev.expected_calibration_error(y[late], p, n_bins),
+            }
+            for name, p in (("raw", raw[late]), ("isotonic", p_iso))
+        ]
+    )
+    r, i = table.iloc[0], table.iloc[1]
+    method = "isotonic" if (i["brier"] < r["brier"] and i["ece"] < r["ece"]) else "raw"
+    return table, method
+
+
+def final_probability(bundle: dict[str, Any], name: str, raw: np.ndarray) -> np.ndarray:
+    """Return the probability passed downstream: isotonic or raw, per the frozen method."""
+    if bundle["calibration_method"] == "isotonic":
+        return np.asarray(bundle["calibrators"][name].predict(raw))
+    return np.clip(raw, 0.0, 1.0)
 
 
 def guard_final_features(cfg: Config, bundle: dict[str, Any]) -> list[str]:
@@ -301,6 +342,14 @@ def fit_phase(cfg: Config) -> bool:
         f"{mc.segmented_min_auc_gain} -> primary model: {chosen}"
     )
 
+    section(f"Calibration transfer check ({chosen}; validation only, no test)")
+    transfer, method = calibration_transfer(
+        valid, raw_va[chosen], mc.calibration.transfer_holdout_months, n_bins
+    )
+    print(transfer.to_string(index=False, float_format="{:.4f}".format))
+    print(f"calibration method for downstream probabilities: {method}")
+    bundle["calibration_method"] = method
+
     section(f"Top {mc.importance_top_n} features by gain ({POOLED})")
     imp = md.importance_table(bundle[POOLED])
     top = imp.head(mc.importance_top_n)
@@ -325,13 +374,17 @@ def fit_phase(cfg: Config) -> bool:
             **{f"{SEGMENTED}_bucket{b}": m.best_iteration for b, m in bundle[SEGMENTED].items()},
         },
         "validation_auc": auc_of,
+        "calibration_method": method,
+        "calibration_transfer": transfer.to_dict("records"),
     }
     save_frozen(cfg, bundle, manifest)
     print(
         f"frozen to {models_dir(cfg)} (config hash {manifest['config_hash']}, "
         f"git {git['git_sha'][:8]}{' dirty' if git['git_dirty'] == 'True' else ''})"
     )
-    write_scores(cfg, valid, raw_va, cal_va)
+    write_scores(
+        cfg, valid, raw_va, {n: final_probability(bundle, n, raw_va[n]) for n in PROB_MODELS}
+    )
 
     tables = {
         "model_comparison_validation": comp,
@@ -340,6 +393,7 @@ def fit_phase(cfg: Config) -> bool:
         "calibration_deciles_validation": ev.decile_table(
             yva, cal_va[chosen], mc.calibration.decile_bins
         ),
+        "calibration_transfer_validation": transfer,
     }
     paths = {name: log_table(name, t, cfg) for name, t in tables.items()}
 
@@ -347,7 +401,13 @@ def fit_phase(cfg: Config) -> bool:
     setup_mlflow(cfg)
     with mlflow.start_run(run_name="stage4-fit") as parent:
         mlflow.set_tags(
-            {**git, "phase": "fit", "config_hash": manifest["config_hash"], "chosen_model": chosen}
+            {
+                **git,
+                "phase": "fit",
+                "config_hash": manifest["config_hash"],
+                "chosen_model": chosen,
+                "calibration_method": method,
+            }
         )
         mlflow.log_artifact("config/config.yaml")
         mlflow.log_dict({"features": kept}, "feature_list.json")
@@ -432,8 +492,14 @@ def test_phase(cfg: Config) -> bool:
     row = comp[comp["model"] == chosen].iloc[0]
     print(f"Brier raw {row['brier_raw']:.4f} -> isotonic {row['brier_calibrated']:.4f}")
     print(f"ECE   raw {row['ece_raw']:.4f} -> isotonic {row['ece_calibrated']:.4f}")
-    require(row["brier_calibrated"] < row["brier_raw"], "isotonic improves Brier on test")
-    require(row["ece_calibrated"] < row["ece_raw"], "isotonic improves reliability (ECE) on test")
+    method = bundle["calibration_method"]
+    print(f"frozen calibration method (chosen on validation): {method}")
+    if method == "isotonic":
+        require(row["brier_calibrated"] < row["brier_raw"], "isotonic improves Brier on test")
+        require(row["ece_calibrated"] < row["ece_raw"], "isotonic improves ECE on test")
+    else:
+        print("INFO  isotonic not used downstream (validation transfer check chose raw); the")
+        print("      raw-vs-isotonic test comparison above is reported, not asserted")
     rel = {
         "raw": ev.reliability_table(yte, raw_te[chosen], n_bins),
         "isotonic": ev.reliability_table(yte, cal_te[chosen], n_bins),
@@ -465,6 +531,7 @@ def test_phase(cfg: Config) -> bool:
         eval_git_sha=git["git_sha"],
         eval_git_dirty=git["git_dirty"],
         chosen=comp["model"] == chosen,
+        calibration_method=bundle["calibration_method"],
     )
     log_path = cfg.paths.test_log
     previous = pd.read_csv(log_path) if log_path.exists() else None
@@ -487,8 +554,8 @@ def test_phase(cfg: Config) -> bool:
     for split in ("test", "drift_study", "late_holdout"):
         df = test if split == "test" else read_split(cfg, split)
         raw = raw_scores(bundle, df)
-        cal = {name: bundle["calibrators"][name].predict(raw[name]) for name in PROB_MODELS}
-        write_scores(cfg, df, raw, cal)
+        final = {name: final_probability(bundle, name, raw[name]) for name in PROB_MODELS}
+        write_scores(cfg, df, raw, final)
     print(f"wrote scores for test, drift_study, late_holdout to {cfg.paths.scores_dir}")
 
     setup_mlflow(cfg)

@@ -178,6 +178,7 @@ class WoeLogisticConfig(_Strict):
 class CalibrationConfig(_Strict):
     reliability_bins: int = Field(gt=1)
     decile_bins: int = Field(gt=1)
+    transfer_holdout_months: int = Field(gt=0)
 
 
 class TrackingConfig(_Strict):
