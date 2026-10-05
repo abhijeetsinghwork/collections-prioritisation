@@ -10,6 +10,9 @@ paths:
   perf_glob: sample_perf_{vintage}.txt
   panel_dir: data/interim/panel
   labels_dir: data/processed/labels
+  macro_dir: data/raw/macro
+  features_dir: data/processed/features
+  feature_audit_table: outputs/tables/feature_audit.csv
   schema_module: src/utils/schema.py
 
 spark:
@@ -141,3 +144,111 @@ splits:
   - {name: test,         start: "2018-01", end: "2019-12"}
   - {name: drift_study,  start: "2020-01", end: "2021-12"}   # never trained or tested on
   - {name: late_holdout, start: "2022-01", end: "2024-12"}   # optional second test window
+
+features:
+  # Trajectory windows look only at months strictly before T (window end = T-1),
+  # on a calendar month index so missing months cannot stretch a window.
+  trajectory_windows: [3, 6, 12]
+  event_windows: [6, 12]
+  upb_change_windows: [3, 6, 12]
+  velocity_lag: 3
+  bucket_lags: [1, 2, 3]
+
+  macro:
+    url: "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
+    state_series:                  # {state} is the two-letter property state
+      unemployment_rate: "{state}UR"
+      house_price_index: "{state}STHPI"
+    national_series:
+      mortgage_rate_30y: MORTGAGE30US
+    # Months after the observation date before a value is public, so month T
+    # only sees what was known then. UR: state data publish ~3-7 weeks after
+    # month end. STHPI: quarterly, dated at quarter start, published ~2 months
+    # after quarter end. MORTGAGE30US: weekly; monthly mean known at month end.
+    publication_lag_months:
+      unemployment_rate: 2
+      house_price_index: 5
+      mortgage_rate_30y: 1
+    change_windows: [3, 12]
+
+  audit:
+    # Univariate AUC: each feature fit alone on train, scored on validation.
+    tree_max_leaf_nodes: 16
+    tree_min_samples_leaf: 500
+    encoding_smoothing: 100        # target-mean encoding prior weight (categoricals)
+
+  # Explicit keep/drop decision for every candidate feature, with a reason.
+  # Stage 3 fails if a candidate has no decision. Filled after reviewing the
+  # null-rate and single-feature AUC tables.
+  decisions:
+    credit_score: {keep: true, reason: "weak univariately among already-delinquent loans (valid .49) but a standard risk driver; kept for the model to use in interactions"}
+    orig_ltv: {keep: true, reason: "origination attribute, known from day one"}
+    orig_cltv: {keep: true, reason: "origination attribute, known from day one"}
+    orig_dti: {keep: true, reason: "null rate jumps 6% -> 26% in validation (HARP loans have no DTI); kept, native null handling, watch in drift study"}
+    orig_upb: {keep: true, reason: "origination attribute, known from day one"}
+    orig_interest_rate: {keep: true, reason: "origination attribute, known from day one"}
+    orig_loan_term: {keep: true, reason: "origination attribute, known from day one"}
+    mi_pct: {keep: true, reason: "origination attribute, known from day one"}
+    loan_purpose: {keep: true, reason: "origination attribute, known from day one"}
+    occupancy_status: {keep: true, reason: "origination attribute, known from day one"}
+    channel: {keep: true, reason: "origination attribute, known from day one"}
+    property_type: {keep: true, reason: "origination attribute, known from day one"}
+    num_units: {keep: true, reason: "origination attribute, known from day one"}
+    num_borrowers: {keep: true, reason: "origination attribute, known from day one"}
+    first_time_homebuyer: {keep: true, reason: "origination attribute, known from day one"}
+    property_state: {keep: true, reason: "origination attribute, known from day one"}
+    msa: {keep: false, reason: "high-cardinality (~400 codes), 24% null; overfits univariately (train .56 -> valid .51); property_state carries geography"}
+    dq_bucket: {keep: true, reason: "bucket at T defines the population and is known at T; top AUC (.66) is in line with its trajectory neighbours, no leakage signature"}
+    loan_age: {keep: true, reason: "reported for month T, known at T"}
+    current_upb: {keep: true, reason: "balance at T; kept as a risk feature (also the exposure multiplier in the score)"}
+    current_interest_rate: {keep: true, reason: "reported for month T, known at T"}
+    remaining_months_to_maturity: {keep: true, reason: "reported for month T, known at T"}
+    current_deferred_upb: {keep: true, reason: "reported for month T, known at T"}
+    eltv: {keep: false, reason: "only populated from 2017-04: 100% null in train, so nothing to learn"}
+    modification_flag: {keep: true, reason: "null = never modified is meaningful (Y current / P prior)"}
+    step_modification_flag: {keep: false, reason: "duplicates modification_flag (identical null pattern and AUC); only defined after a modification"}
+    payment_deferral_flag: {keep: false, reason: "only populated from 2020: 100% null in train"}
+    borrower_assistance_status: {keep: false, reason: "only populated from 2014: 99% null in train; revisit if the training window moves"}
+    delinquency_due_to_disaster: {keep: false, reason: "only populated from 2014: 99.95% null in train; inverts on validation (AUC .44)"}
+    upb_to_orig_upb: {keep: true, reason: "reported for month T, known at T"}
+    rate_change_since_orig: {keep: true, reason: "reported for month T, known at T"}
+    months_delinquent_last_3: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    max_bucket_last_3: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    mean_bucket_last_3: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    months_delinquent_last_6: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    max_bucket_last_6: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    mean_bucket_last_6: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    months_delinquent_last_12: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    max_bucket_last_12: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    mean_bucket_last_12: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    months_observed_last_12: {keep: true, reason: "data-availability count (seasoning < 12 months or gaps); kept, low risk"}
+    n_cure_events_last_6: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    n_roll_events_last_6: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    n_cure_events_last_12: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    n_roll_events_last_12: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    bucket_lag_1: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    bucket_lag_2: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    bucket_lag_3: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    months_since_last_current: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    months_since_first_delinquency: {keep: true, reason: "null = no delinquency before T (first episode) is meaningful; LightGBM uses nulls natively"}
+    longest_delinquent_run_before_t: {keep: true, reason: "null = no delinquency before T is meaningful; native null handling"}
+    times_entered_delinquency_before_t: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    max_bucket_before_t: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    ever_modified_before_t: {keep: true, reason: "window ends at T-1 or earlier (registry + perturbation test)"}
+    ever_forbearance_before_t: {keep: false, reason: "derived from borrower_assistance_status (2014+): 98% null in train"}
+    ever_payment_deferral_before_t: {keep: false, reason: "no variance in train (deferrals start 2020)"}
+    ever_disaster_before_t: {keep: false, reason: "derived from the 2014+ disaster flag: 99.9% null in train"}
+    delinquency_velocity_3m: {keep: true, reason: "reads T by definition (bucket T vs T-3); both known at T; perturbation test confirms nothing later is read"}
+    upb_change_pct_3: {keep: true, reason: "reads T by definition (balance T vs T-3); balance at T is reported for T"}
+    upb_change_pct_6: {keep: true, reason: "reads T by definition (balance T vs T-6)"}
+    upb_change_pct_12: {keep: true, reason: "reads T by definition (balance T vs T-12)"}
+    current_run_length: {keep: true, reason: "reads T by definition (run ending at T); known at T"}
+    unemployment_rate: {keep: true, reason: "state-level, comparable across states, varies within a month"}
+    unemployment_rate_chg_3m: {keep: true, reason: "state-level change, varies within a month"}
+    unemployment_rate_chg_12m: {keep: true, reason: "state-level change, varies within a month"}
+    house_price_index: {keep: false, reason: "index level has a different base per state, so it encodes state x time, not house-price stress"}
+    house_price_index_chg_3m: {keep: true, reason: "state-level, varies within a month; percent change is comparable across states"}
+    house_price_index_chg_12m: {keep: true, reason: "state-level, varies within a month; inverts on validation (train .58, valid .47) because 2016-17 had rising prices everywhere; kept for the model, flagged for the drift study"}
+    mortgage_rate_30y: {keep: false, reason: "national: identical for every loan in a month, cannot change the within-month ranking; time proxy"}
+    mortgage_rate_30y_chg_3m: {keep: false, reason: "national: identical for every loan in a month, cannot change the within-month ranking; time proxy"}
+    mortgage_rate_30y_chg_12m: {keep: false, reason: "national: identical for every loan in a month, cannot change the within-month ranking; time proxy"}

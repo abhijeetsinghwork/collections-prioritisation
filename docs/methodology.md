@@ -205,3 +205,93 @@ a visibly different structure (bucket 1 rolls far more often), consistent with
 forbearance changing what delinquency means; it is never trained or tested on.
 Three label-1 and three label-0 rows were traced month by month and match
 what happened.
+
+---
+
+## Stage 3 — Features
+
+71 candidate features in four families, computed in Spark for every
+labelled row (899,717 rows, one feature row per label row).
+
+| Family | Candidates | Kept |
+|---|---|---|
+| A — static origination | 17 | 16 |
+| B — current state at T | 14 | 9 |
+| C — trajectory | 31 | 28 |
+| D — macro | 9 | 5 |
+
+### Every feature declares its window
+
+`src/pipeline/features.py` has a registry giving each feature's source
+columns and the newest month it reads relative to T: static, `T+0`, or `T-k`.
+Trajectory windows are `RANGE` windows on the calendar month index ending at
+T-1 (the spec's `1 PRECEDING`), so a missing month cannot pull month T in.
+
+Five trajectory features read month T **by definition**, as the spec writes
+them: `delinquency_velocity_3m` (bucket at T minus bucket at T-3),
+`upb_change_pct_{3,6,12}` (balance at T against T-n), and
+`current_run_length`. Month T's own values are reported for month T and are
+known when the month-T contact list is built.
+
+### The guard is tested, not only declared
+
+`tests/test_features.py` changes everything after T and asserts no feature
+moves. Then, for k = 0, 1, 2, it changes month T-k (once pushing values up,
+once down) and asserts that every feature declared to end before T-k does not
+move. As a check on the check, widening one window to include month T made
+this test fail and name the six affected features.
+
+The static blocklist (spec section 7) is applied to feature names and to
+every declared source column; post-disposition fields were already dropped at
+ingest. The label columns are blocked too.
+
+### Macro: lagged to publication date
+
+FRED values are lagged to when they were public: state unemployment 2 months,
+quarterly state house prices 5 months from the quarter's start date (≈2
+months after quarter end), national mortgage rate 1 month. FRED serves today's
+revised values, not what was published at the time (that would need ALFRED
+vintages); this is a small, acknowledged look-ahead in the macro family.
+Guam and the Virgin Islands have no state series, Puerto Rico has no house
+price index; those features are null there. The series are downloaded by
+`make macro`, not committed: `data/` stays entirely out of git.
+
+### Audit and decisions
+
+`outputs/tables/feature_audit.csv` has null rates and single-feature AUC
+(each feature alone, fit on train, scored on validation) for all 71
+candidates. Reviewed by hand:
+
+- **No leakage signature.** The top feature is `dq_bucket` (validation AUC
+  0.658), followed by a smooth run of trajectory features from 0.652 down to
+  about 0.60. Nothing stands apart from its neighbours.
+- **Fields Freddie Mac only started populating recently are dropped:** ELTV
+  (2017+), payment deferral (2020+), disaster and borrower-assistance flags
+  (2014+). They are 98–100% null in train, so there is nothing to learn; they
+  belong to the drift study.
+- **National series are dropped.** The 30-year mortgage rate and its changes
+  are identical for every loan in a month, so they cannot change a ranking
+  made within a month, and univariately they flip from train (0.55–0.57) to
+  validation (0.48–0.49): they act as a stand-in for the time period.
+- **State house-price level is dropped:** each state's index has its own
+  base, so the level encodes state × time. Its percentage changes are kept.
+- **MSA is dropped** (≈400 codes, 24% null, overfits univariately);
+  `property_state` carries geography. **Step-modification flag** duplicates
+  the modification flag.
+- `house_price_index_chg_12m` inverts between train (0.58) and validation
+  (0.47), because 2016–17 had rising prices everywhere. It is kept, since it
+  is economically meaningful and varies across states, and is flagged for the
+  drift study.
+- `orig_dti` is 6% null in train but 26% in validation (HARP refinances
+  carry no DTI, and they are concentrated among first-episode loans in the
+  later splits). Kept, with native null handling.
+
+Every one of the 71 decisions, with its one-line reason, is in
+`config.yaml` under `features.decisions`; Stage 3 fails if a candidate has
+no decision.
+
+### Pipeline rebuilds
+
+Each stage's `make` target depends on a stamp of only its own config section
+(`src/utils/config_stamp.py`), so editing a feature decision re-runs Stage 3
+but not the 15-minute ingest.
