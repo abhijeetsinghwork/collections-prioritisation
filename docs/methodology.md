@@ -462,3 +462,14 @@ probabilities, so the effect of this choice on the ranking is visible. Test
 has now been evaluated three times; every evaluation is in
 `outputs/tables/test_evaluations.csv`, and the AUC results never changed
 (the boosters are identical across all three).
+
+### Accepted failure
+
+Agreed with the project owner: stop searching for a calibrator (each attempt
+is another look at test, and the evidence points at the window, not the
+method) and accept the calibration check as a documented failure. It is
+recorded in `config.yaml` under `acceptance.accepted_failures` with its
+reason; the config refuses an accepted failure without a substantive reason
+or for an unknown check. That section sits outside `models:`, so it does not
+change the frozen model. No fourth test evaluation was run: the third
+evaluation (Platt) is the one being accepted.
