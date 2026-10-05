@@ -9,6 +9,7 @@ paths:
   orig_glob: sample_orig_{vintage}.txt
   perf_glob: sample_perf_{vintage}.txt
   panel_dir: data/interim/panel
+  labels_dir: data/processed/labels
   schema_module: src/utils/schema.py
 
 spark:
@@ -109,15 +110,34 @@ checks:
   # Spec section 5: if current does not dominate, the status mapping is wrong.
   min_current_share: 0.95
   spot_check_loans: 5
+  # Stage 2 structural checks. Bounds only reject a degenerate label (all 0 or
+  # all 1); they are not a target.
+  base_rate_bounds: [0.01, 0.99]
+  min_rows_per_split: 10000
+  # Splits where base rate must rise with bucket depth. The drift and late
+  # windows are reported but not asserted: the drift window exists precisely
+  # because forbearance changes what delinquency means.
+  monotonic_splits: [train, validation, test]
+  trace_examples_per_label: 3
 
 labels:
+  population_buckets: [1, 2, 3]   # 30-119 days; current and 120+ are out of scope
+  horizon_months: 3
   # Zero Balance Code classification. Codes from the July 2026 guide.
-  # Used from Stage 2; recorded here so the decision is visible early.
   zero_balance_codes:
     "01": cure       # prepaid or matured
     "02": roll       # third party sale
     "03": roll       # short sale or charge off
     "09": roll       # REO disposition
     "15": roll       # whole loan sale
-    "16": exclude    # reperforming loan securitization (not in spec; see methodology)
+    "16": exclude    # reperforming loan securitisation: a sale, not an observed outcome
     "96": exclude    # confirmed underwriting / servicing defect
+
+# Temporal splits on reporting period (inclusive, YYYY-MM), in time order.
+# A loan is kept only in the first split it appears in, so splits are disjoint.
+splits:
+  - {name: train,        start: "2000-01", end: "2015-12"}
+  - {name: validation,   start: "2016-01", end: "2017-12"}
+  - {name: test,         start: "2018-01", end: "2019-12"}
+  - {name: drift_study,  start: "2020-01", end: "2021-12"}   # never trained or tested on
+  - {name: late_holdout, start: "2022-01", end: "2024-12"}   # optional second test window

@@ -11,9 +11,12 @@ RUN      := uv run
 INTERIM  := data/interim
 RAW      := $(wildcard data/raw/sample_*.txt)
 CONFIG   := config/config.yaml
-LIB      := $(wildcard src/*.py src/utils/*.py src/pipeline/*.py)
+COMMON   := src/spark.py $(wildcard src/utils/*.py)
+INGEST_SRC := src/s1_ingest.py src/pipeline/ingest.py src/pipeline/checks.py $(COMMON)
+LABELS_SRC := src/s2_labels.py src/pipeline/labels.py src/pipeline/label_checks.py $(COMMON)
 
 INGEST_DONE := $(INTERIM)/.s1_ingest.done
+LABELS_DONE := data/processed/.s2_labels.done
 
 .PHONY: help setup schema lint format typecheck test check ingest labels features train policy drift all clean
 
@@ -46,11 +49,12 @@ check: lint typecheck test  ## lint + typecheck + test
 # Stage targets rebuild when code, config or raw inputs are newer than the
 # marker. The marker is written only after every acceptance check passes.
 ingest: $(INGEST_DONE)  ## stage 1
-$(INGEST_DONE): $(RAW) $(CONFIG) $(LIB)
+$(INGEST_DONE): $(RAW) $(CONFIG) $(INGEST_SRC)
 	$(RUN) python -m src.s1_ingest
 
-labels:  ## stage 2
-	@echo "stage 2 not built yet" && exit 1
+labels: $(LABELS_DONE)  ## stage 2
+$(LABELS_DONE): $(INGEST_DONE) $(CONFIG) $(LABELS_SRC)
+	$(RUN) python -m src.s2_labels
 
 features:  ## stage 3
 	@echo "stage 3 not built yet" && exit 1

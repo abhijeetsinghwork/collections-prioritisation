@@ -91,3 +91,12 @@ def test_config_rejects_unknown_keys(tmp_path):
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(pydantic.ValidationError, match="driver_memroy"):
         load_config(path)
+
+
+def test_config_rejects_overlapping_splits(tmp_path):
+    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())
+    raw["splits"][1]["start"] = "2015-06"  # overlaps train, which ends 2015-12
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(pydantic.ValidationError, match="overlap"):
+        load_config(path)

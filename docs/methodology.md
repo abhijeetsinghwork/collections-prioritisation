@@ -90,8 +90,8 @@ FOLLOWING` window would silently reach four or five months ahead across a gap.
 ### Zero Balance Codes have changed since the spec
 
 The July 2026 guide no longer lists `06` (repurchase) and adds `15` (whole
-loan sales) and `16` (reperforming loan securitisations). Provisional
-classification, to be settled in Stage 2:
+loan sales) and `16` (reperforming loan securitisations). Classification
+(settled in Stage 2, see below):
 
 | Code | Meaning | Treat as |
 |---|---|---|
@@ -100,7 +100,7 @@ classification, to be settled in Stage 2:
 | 03 | Short sale or charge off | roll |
 | 09 | REO disposition | roll |
 | 15 | Whole loan sale | roll |
-| 16 | Reperforming loan securitisation | exclude (provisional) |
+| 16 | Reperforming loan securitisation | exclude |
 | 96 | Confirmed defect | exclude |
 
 Code `16` matters more than it looks: in the 2015 vintage it terminates 108
@@ -127,3 +127,81 @@ argues for treating it as censoring rather than as a roll or a cure.
 PySpark 3.5 supports Java 8/11/17 only; the machine default was Java 24.
 `src/spark.py` locates a supported JDK (respecting `JAVA_HOME`) and fails with
 an install instruction if there is none.
+
+---
+
+## Stage 2 — Population, label, splits
+
+### Population
+
+Loan-months with `dq_bucket` in 1, 2 or 3 (30–119 days), not REO, and not
+carrying a zero-balance code that month. Current accounts are not worked by
+collections, and at 120+ days routine telephony is no longer the right lever.
+
+### Label: calendar months, not rows
+
+`rolls_deeper = 1` if, in months T+1 .. T+3, the loan reaches a bucket deeper
+than at T (REO counts as deepest) or terminates with a "roll" zero-balance
+code. The window is a Spark `RANGE` window over a calendar month index, not
+the spec's `ROWS BETWEEN 1 FOLLOWING AND 3 FOLLOWING`: the panel has missing
+months (Stage 1), and a row window would silently reach T+4 or T+5 across a
+gap. `tests/test_labels.py` has fixtures where the two give different answers.
+
+A label of 0 needs evidence. In order:
+
+| Situation | Outcome |
+|---|---|
+| T is in the last 3 months of the data | dropped (`end_of_data`) |
+| deeper bucket seen in the window | 1 |
+| roll zero-balance code in the window | 1 |
+| excluded code (16, 96) in the window, no roll before it | dropped |
+| prepaid / matured (01) in the window | 0, terminal outcome observed |
+| all 3 months observed, no roll | 0 |
+| anything else (history ends or has a gap, no roll seen) | dropped (`incomplete_window`) |
+
+A roll seen across a gap is kept as 1: it is an observed fact. A non-roll
+across a gap is dropped: the missing month could have hidden a roll.
+
+### Code 16 is excluded
+
+Decided with the project owner: a reperforming-loan securitisation is a sale
+out of the portfolio, not an observed credit outcome, so it is treated as
+censoring. In practice it drops 1,593 population rows (0.13%), together with
+code 96.
+
+### Splits are fully disjoint by loan
+
+The spec removes train loans from validation and test. This goes one step
+further: each loan stays only in the **first** split in which it has a
+labelled row, and its rows in every later split are dropped. Otherwise a loan
+could sit in both validation (used for tuning) and test, which would leak
+tuning into the test number, and `test_split_disjoint` requires no loan in
+two splits.
+
+The cost is real and is recorded here rather than hidden: 267,629 labelled
+rows are dropped by this rule, and validation (27,436 rows, 11,254 loans) and
+test (31,061 rows, 13,566 loans) are much smaller than train (706,490 rows,
+97,424 loans). It also changes *who* is in the later splits: validation and
+test hold only loans whose first delinquency episode falls in that window,
+so repeat delinquents, which are mostly in train, are under-represented
+there. Any drop in base rate across splits partly reflects this selection,
+not only the passage of time.
+
+55,021 labelled rows fall after the last split (2025) and are unused.
+
+### Results of the checks
+
+| Split | Rows | Loans | Base rate | Bucket 1 | Bucket 2 | Bucket 3 |
+|---|---|---|---|---|---|---|
+| train | 706,490 | 97,424 | 0.398 | 0.314 | 0.524 | 0.724 |
+| validation | 27,436 | 11,254 | 0.330 | 0.242 | 0.599 | 0.726 |
+| test | 31,061 | 13,566 | 0.257 | 0.195 | 0.481 | 0.720 |
+| drift_study | 71,544 | 25,325 | 0.576 | 0.453 | 0.716 | 0.732 |
+| late_holdout | 63,186 | 21,543 | 0.328 | 0.243 | 0.553 | 0.698 |
+
+The base rate rises with bucket depth in every split, which is the structural
+check that the label logic is the right way round. The drift-study window has
+a visibly different structure (bucket 1 rolls far more often), consistent with
+forbearance changing what delinquency means; it is never trained or tested on.
+Three label-1 and three label-0 rows were traced month by month and match
+what happened.
