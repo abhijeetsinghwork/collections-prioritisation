@@ -1,0 +1,16 @@
+feature,baseline_mean_psi,max_psi_2020_21,excess,peak_month
+unemployment_rate_chg_3m,2.42279,8.88051,6.45771,2020-10-01
+unemployment_rate_chg_12m,3.19187,7.86042,4.66855,2021-07-01
+house_price_index_chg_3m,3.94606,8.19864,4.25258,2021-12-01
+house_price_index_chg_12m,4.63167,8.20601,3.57434,2021-12-01
+orig_interest_rate,1.35767,3.17583,1.81817,2020-06-01
+delinquency_velocity_3m,0.02792,1.51953,1.49161,2020-06-01
+current_interest_rate,1.51374,2.84735,1.33361,2020-06-01
+channel,0.62360,1.77737,1.15377,2020-06-01
+mean_bucket_last_12,0.02626,1.17558,1.14932,2020-04-01
+months_delinquent_last_12,0.03035,1.16993,1.13958,2020-06-01
+max_bucket_last_12,0.01649,1.14052,1.12403,2020-04-01
+mean_bucket_last_6,0.02519,1.11495,1.08976,2020-04-01
+months_delinquent_last_6,0.02479,1.11048,1.08569,2020-04-01
+max_bucket_last_6,0.01710,1.08677,1.06968,2020-04-01
+n_roll_events_last_12,0.01450,1.05109,1.03659,2020-04-01

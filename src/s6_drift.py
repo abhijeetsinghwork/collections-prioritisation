@@ -100,7 +100,8 @@ def mismatched_features(a: pd.DataFrame, b: pd.DataFrame, features: list[str]) -
     for f in features:
         x, y = a[f], b[f]
         both_null = x.isna().to_numpy() & y.isna().to_numpy()
-        if x.dtype == object or y.dtype == object:
+        numeric = pd.api.types.is_numeric_dtype(x) and pd.api.types.is_numeric_dtype(y)
+        if not numeric:
             same = (x.astype(str).to_numpy() == y.astype(str).to_numpy()) | both_null
         else:
             same = np.isclose(x.to_numpy(float), y.to_numpy(float), rtol=1e-9) | both_null
@@ -239,12 +240,21 @@ def run(cfg: Config, population: str) -> bool:
         print(f"{name:20s} band [{band.lo:.4f}, {band.hi:.4f}]  first departure: {first}")
     departure_table = pd.DataFrame(rows)
 
-    section("Features that moved most (2020-21)")
+    section("Features that moved most in 2020-21, relative to their 2018-19 level")
+    # Ranked by excess over the baseline mean: some features (e.g. macro levels)
+    # sit far from train in every month, which is a standing difference, not drift.
     drift_months = feature_psi.loc[window.index]
-    top = drift_months.max().sort_values(ascending=False).head(dc.heatmap_top_n)
-    peak = drift_months[top.index].idxmax()
+    baseline_mean = feature_psi.loc[monitor.index[is_base]].mean()
+    excess = (drift_months.max() - baseline_mean).sort_values(ascending=False)
+    top = excess.head(dc.heatmap_top_n)
     top_table = pd.DataFrame(
-        {"feature": top.index, "max_psi": top.to_numpy(), "peak_month": peak.to_numpy()}
+        {
+            "feature": top.index,
+            "baseline_mean_psi": baseline_mean[top.index].to_numpy(),
+            "max_psi_2020_21": drift_months[top.index].max().to_numpy(),
+            "excess": top.to_numpy(),
+            "peak_month": drift_months[top.index].idxmax().to_numpy(),
+        }
     )
     print(top_table.to_string(index=False, float_format="{:.3f}".format))
 
@@ -268,7 +278,7 @@ def run(cfg: Config, population: str) -> bool:
         ),
         f"drift_psi_heatmap_{population}.png": drift_plots.psi_heatmap(
             feature_psi[top.index],
-            f"PSI vs training, top {len(top)} features by peak 2020-21 PSI",
+            f"PSI vs training, top {len(top)} features by 2020-21 peak above their 2018-19 mean",
         ),
     }
     for name, fig in figures.items():
